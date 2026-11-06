@@ -359,7 +359,9 @@ tr.grp td{padding:var(--sp-2) 10px;background:var(--fill);border-bottom:0;}
   .metric .lab{font-size:11.5px;}
   .metric .val{font-size:19px;letter-spacing:-.3px;margin-top:2px;}
   .metric .foot{font-size:10.5px;line-height:1.35;margin-top:2px;}
-  /* 账户表 → 卡片：名称+类型在左，余额在右，操作按钮落到底部一行 */
+  /* 账户表 → 卡片：名称与余额同行，操作按钮落到底部一行。
+     手机上不显示类型标签——分组标题已经说了大类，账户名通常也写明了类型，
+     一个彩色胶囊白白吃掉一整行，还会和金额错位。电脑版表格里仍保留类型列。 */
   #ov-accounts{overflow-x:visible;}
   #ov-accounts table{display:block;min-width:0;}
   #ov-accounts thead{display:none;}
@@ -368,15 +370,17 @@ tr.grp td{padding:var(--sp-2) 10px;background:var(--fill);border-bottom:0;}
   #ov-accounts tr.grp>td{display:block;padding:0;border:0;}
   #ov-accounts tr.grp .grp-in{padding:12px 2px 4px;}
   #ov-accounts tr:not(.grp){
-    display:grid;grid-template-columns:1fr auto;gap:2px 10px;
+    display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:start;
     background:var(--fill);border-radius:14px;
     padding:12px 14px;margin:8px 0;}
   #ov-accounts tr:not(.grp)>td{display:block;padding:0;border:0;}
-  #ov-accounts tr:not(.grp)>td:nth-child(1){grid-column:1;font-size:15px;line-height:1.5;}
-  #ov-accounts tr:not(.grp)>td:nth-child(2){grid-column:1;}
+  #ov-accounts tr:not(.grp)>td:nth-child(1){grid-column:1;font-size:15px;line-height:1.4;}
+  #ov-accounts tr:not(.grp)>td:nth-child(1) .muted{font-size:11.5px;line-height:1.4;}
+  #ov-accounts tr:not(.grp)>td:nth-child(2){display:none;}
   #ov-accounts tr:not(.grp)>td:nth-child(3){
-    grid-column:2;grid-row:1 / span 2;align-self:center;
-    text-align:right;font-size:19px;font-weight:600;letter-spacing:-.4px;}
+    grid-column:2;align-self:start;
+    text-align:right;font-size:19px;font-weight:600;letter-spacing:-.4px;
+    font-variant-numeric:tabular-nums;}
   #ov-accounts tr:not(.grp)>td:nth-child(4){
     grid-column:1 / -1;margin-top:10px;
     text-align:left!important;white-space:normal!important;
