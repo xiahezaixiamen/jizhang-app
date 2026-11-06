@@ -284,6 +284,14 @@ tr.grp td{padding:var(--sp-2) 10px;background:var(--fill);border-bottom:0;}
   padding:var(--sp-3) var(--sp-4);font-size:12.5px;color:#0060c8;
   margin-bottom:var(--sp-4);line-height:1.7;}
 
+/* 备份提醒条：轻提示，不打断操作 */
+.bk-bar{display:flex;align-items:center;flex-wrap:wrap;gap:var(--sp-2);
+  background:var(--primary-weak);border-radius:var(--radius-sm);
+  padding:10px var(--sp-4);font-size:12.5px;line-height:1.6;color:#0060c8;
+  margin-bottom:var(--sp-3);}
+.bk-bar .bk-txt{flex:1 1 180px;}
+.bk-bar .bk-act{display:flex;gap:var(--sp-2);margin-left:auto;}
+
 /* 移动端 */
 @media (max-width:640px){
   .wrap{padding:0 14px 60px;}
@@ -416,6 +424,7 @@ tr.grp td{padding:var(--sp-2) 10px;background:var(--fill);border-bottom:0;}
 <div class="help" id="boot-error" style="display:none;background:rgba(255,59,48,.08);color:#c0392b"></div>
 
 <section id="tab-overview" class="tab show">
+  <div class="bk-bar" id="bk-bar" style="display:none"></div>
   <div class="help" id="ov-help" style="display:none"></div>
   <div class="grid cards" id="ov-metrics"></div>
   <div class="card" id="insight-card" style="margin-top:14px">
@@ -1456,6 +1465,7 @@ function openInsight(i){
 
 function renderOverview(){
   renderDca();
+  renderBackupBar();
   var bal = currentBalances();
   var n = netOf(bal);
   var m = monthStats(thisMonth());
@@ -2323,11 +2333,101 @@ function download(name, text, type){
   setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 100);
 }
 
+/* 分享优先：iOS/安卓上直接调起系统分享面板，「存到文件」「发给自己」一步完成；
+   不支持或出错时退回原来的下载方式。 */
+function shareOrDownload(name, text, mime){
+  mime = mime || 'application/json';
+  function fallback(){
+    download(name, text, mime + ';charset=utf-8');
+    markBackedUp();
+    renderBackupBar();
+  }
+  try {
+    var file = new File([text], name, {type: mime});
+    /* 只在触屏设备上用分享面板；桌面端保持「下载」这个预期行为 */
+    var touchFirst = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    if (touchFirst && navigator.canShare && navigator.canShare({files: [file]})){
+      navigator.share({files: [file], title: '记账备份'}).then(function(){
+        markBackedUp();
+        renderBackupBar();
+      }).catch(function(err){
+        /* 用户点了取消不算失败，也不要再弹下载框骚扰 */
+        if (err && err.name === 'AbortError') return;
+        fallback();
+      });
+      return;
+    }
+  } catch(e){ /* 老浏览器没有 File 构造器，走下载 */ }
+  fallback();
+}
+
 function exportJSON(){
   var payload = {version: 4, exported_at: new Date().toISOString(),
     data: {accounts: db.accounts, transactions: db.transactions,
            dca: db.dca, fixed: db.fixed}};
-  download('记账备份-' + today() + '.json', JSON.stringify(payload, null, 2));
+  shareOrDownload('记账备份-' + today() + '.json', JSON.stringify(payload, null, 2));
+}
+
+/* ================= 交互：备份提醒 ================= */
+var BK_AT = 'jz_backup_at', BK_TX = 'jz_backup_tx', BK_SNOOZE = 'jz_backup_snooze';
+
+function lsGet(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+function lsSet(k, v){
+  try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, String(v)); } catch(e){}
+}
+
+function daysBetween(fromIso, toIso){
+  if (!fromIso || !toIso) return null;
+  var a = new Date(fromIso + 'T00:00:00'), b = new Date(toIso + 'T00:00:00');
+  if (isNaN(a) || isNaN(b)) return null;
+  return Math.round((b - a) / 86400000);
+}
+
+/* 返回触发提醒的原因；不需要提醒时返回 null */
+function backupDue(){
+  if (!db.accounts.length) return null;
+  var snooze = lsGet(BK_SNOOZE);
+  /* 注意：null < 3 在 JS 里为真，必须先判空，否则永远不提醒 */
+  if (snooze && daysBetween(snooze, today()) < 3) return null;
+  var last = lsGet(BK_AT);
+  var added = Math.max(0, db.transactions.length - (+lsGet(BK_TX) || 0));
+  if (!last) return {reason: 'never', days: null, added: db.transactions.length};
+  var days = daysBetween(last, today());
+  if (days >= 7) return {reason: 'days', days: days, added: added};
+  if (added >= 20) return {reason: 'count', days: days, added: added};
+  return null;
+}
+
+function markBackedUp(){
+  lsSet(BK_AT, today());
+  lsSet(BK_TX, db.transactions.length);
+  lsSet(BK_SNOOZE, null);
+}
+
+function snoozeBackup(){
+  lsSet(BK_SNOOZE, today());
+  renderBackupBar();
+}
+
+function renderBackupBar(){
+  var el = document.getElementById('bk-bar');
+  if (!el) return;
+  var due = backupDue();
+  if (!due){ el.style.display = 'none'; el.innerHTML = ''; return; }
+  var txt;
+  if (due.reason === 'never'){
+    txt = '还没导出过备份。账目只存在这台设备上，换手机或误删就找不回来了。';
+  } else if (due.reason === 'days'){
+    txt = '距上次备份 ' + due.days + ' 天，期间新增 ' + due.added + ' 笔。';
+  } else {
+    txt = '上次备份后又记了 ' + due.added + ' 笔，建议导出一份。';
+  }
+  el.innerHTML = '<span class="bk-txt">' + esc(txt) + '</span>' +
+    '<span class="bk-act">' +
+      '<button class="btn btn-sm btn-primary" type="button" onclick="exportJSON()">立即备份</button>' +
+      '<button class="btn btn-sm" type="button" onclick="snoozeBackup()">稍后</button>' +
+    '</span>';
+  el.style.display = '';
 }
 
 function exportCSV(kind){
