@@ -314,6 +314,16 @@ tr.grp td{padding:var(--sp-2) 10px;background:var(--fill);border-bottom:0;}
   /* iOS 在字号 <16px 的输入框聚焦时会放大整页，锁到 16px 避免跳动 */
   input,select,textarea{font-size:16px;}
   .seg button{font-size:14px;padding:6px 20px;}
+  /* 记一笔表单：原先按 126/114/96px 固定排布，但 16px 字号下 iOS 的日期框
+     最小宽度是 168px，会挤掉金额的位置，两者糊成一片。改为确定性的分行：
+     日期独占 / 金额+分类 / 账户 / 备注+按钮。 */
+  #tx-form{gap:10px;}
+  #tx-form>.field{flex:1 1 100%!important;min-width:0;}
+  #tx-form>.field>input,#tx-form>.field>select{width:100%;min-width:0;}
+  #tx-form>.field:nth-child(2),
+  #tx-form>.field:nth-child(3){flex:1 1 calc(50% - 5px)!important;}
+  #tx-form>.field:nth-child(6){flex:1 1 120px!important;}
+  #tx-form>button{flex:0 0 88px;padding:10px 16px;}
   /* 指标卡两列，避免单列把首屏撑得太长 */
   .cards{grid-template-columns:repeat(2,1fr);gap:10px;}
   /* 奇数张时最后一张通栏，避免右下角留一块空白 */
