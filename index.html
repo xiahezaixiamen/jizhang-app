@@ -1,0 +1,2521 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="记账">
+<meta name="theme-color" content="#f5f5f7">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>本地个人财务管理</title>
+<style>
+:root{
+  /* 表面与文字 */
+  --bg:#f5f5f7; --card:#ffffff; --text:#000000; --muted:#6b7280;
+  --faint:#9ca3af; --hair:rgba(0,0,0,.08);
+  --fill:#f5f5f7; --fill-hover:#ececee;
+  /* Apple Action Blue #0066cc 为主色；#0071e3 只做键盘聚焦环 */
+  --primary:#0066cc; --primary-focus:#0071e3; --primary-hover:#0071e3;
+  --primary-weak:rgba(0,102,204,.1); --primary-weak-hover:rgba(0,102,204,.16);
+  /* 功能语义色：涨红跌绿（中国习惯）与分类色，非品牌 accent，保留 */
+  --red:#ff3b30; --red-weak:rgba(255,59,48,.1);
+  --green:#34c759; --green-weak:rgba(52,199,89,.12);
+  /* 形状与动效 */
+  --radius:18px; --radius-sm:12px; --radius-xs:8px; --radius-pill:9999px;
+  --ease:cubic-bezier(0.25,0.1,0.25,1);
+  --shadow-card:0 1px 3px rgba(0,0,0,.05),0 6px 18px rgba(0,0,0,.035);
+  --shadow-pop:0 24px 70px rgba(0,0,0,.2),0 8px 24px rgba(0,0,0,.08);
+  /* 间距刻度：4 的倍数，结构尺寸一律取这里的值 */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px;
+  --sp-6:24px; --sp-8:32px; --sp-12:48px;
+  /* 字号层级 */
+  --fs-micro:11px; --fs-caption:12px; --fs-body:13px;
+  --fs-card-title:14px; --fs-metric:26px; --fs-metric-sm:21px;
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",
+    "Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+}
+/* 全局键盘态：按钮/可聚焦元素统一 2px 聚焦环；输入框另用填充式 focus ring */
+button:focus-visible,[tabindex]:focus-visible{
+  outline:2px solid var(--primary-focus);outline-offset:2px;}
+button:disabled,input:disabled,select:disabled{
+  opacity:.45;cursor:not-allowed;transform:none;box-shadow:none;}
+input::placeholder{color:var(--muted);opacity:1;}
+*{box-sizing:border-box;}
+html{-webkit-text-size-adjust:100%;}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:14px/1.65 var(--font);-webkit-font-smoothing:antialiased;}
+.wrap{max-width:980px;margin:0 auto;padding:0 20px 70px;}
+
+/* 顶部导航栏：白底毛玻璃 + 发丝分割线 */
+header{position:sticky;top:0;z-index:20;
+  background:rgba(255,255,255,.8);
+  -webkit-backdrop-filter:blur(12px) saturate(180%);
+  backdrop-filter:blur(12px) saturate(180%);
+  border-bottom:.5px solid rgba(0,0,0,.08);}
+.head-inner{max-width:980px;margin:0 auto;padding:11px 20px;
+  display:flex;align-items:center;justify-content:center;}
+
+/* 分段控件（iOS segmented control） */
+nav{display:flex;gap:2px;margin:0;padding:2px;
+  background:var(--fill);border-radius:10px;}
+nav button{border:0;background:transparent;padding:5px 16px;border-radius:8px;
+  cursor:pointer;font-family:inherit;font-size:13px;line-height:1.4;color:var(--muted);
+  transition:color .2s var(--ease),background .2s var(--ease),box-shadow .2s var(--ease);}
+nav button:hover{color:var(--text);}
+nav button.active{background:#fff;color:var(--text);font-weight:600;
+  box-shadow:0 1px 3px rgba(0,0,0,.1),0 0 0 .5px rgba(0,0,0,.02);}
+
+/* 金额隐私开关：绝对定位，避免挤走居中的分段控件 */
+.head-inner{position:relative;}
+.eye-btn{position:absolute;right:20px;top:50%;transform:translateY(-50%);
+  width:34px;height:34px;padding:0;border:0;border-radius:50%;
+  background:var(--fill-hover);color:var(--muted);cursor:pointer;
+  box-shadow:0 1px 3px rgba(0,0,0,.10),0 0 0 .5px rgba(0,0,0,.08);
+  display:flex;align-items:center;justify-content:center;
+  transition:background-color .2s var(--ease),color .2s var(--ease);}
+.eye-btn:hover{background:var(--fill-hover);color:var(--text);}
+.eye-btn:active{transform:translateY(-50%) scale(.95);}
+.eye-btn:focus-visible{outline:2px solid var(--primary-focus);outline-offset:2px;}
+.eye-btn svg{width:18px;height:18px;display:block;}
+
+/* 页签切换淡入 */
+section.tab{display:none;padding-top:var(--sp-8);}
+section.tab.show{display:block;animation:fadeUp .4s var(--ease);}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+
+h2{font-size:15px;font-weight:600;margin:0 0 var(--sp-1);letter-spacing:-.2px;}
+.sub{color:var(--muted);font-size:12.5px;margin:0 0 var(--sp-3);}
+.grid{display:grid;gap:var(--sp-3);}
+.grid>*{min-width:0;}
+.cards{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));}
+.two{grid-template-columns:1fr 1fr;}
+canvas{max-width:100%;}
+
+/* 中间断点：原先只有 640px，平板宽度下两栏过窄 */
+@media (min-width:641px) and (max-width:1024px){
+  .wrap{padding:0 18px 60px;}
+  .chart-box{height:240px;}
+}
+@media (max-width:768px){.two{grid-template-columns:1fr;}}
+
+/* 卡片：Apple 式发丝边界 + 极轻投影，层次靠表面色差而非重阴影 */
+.card{background:var(--card);border-radius:var(--radius);padding:var(--sp-4) 20px;
+  box-shadow:var(--shadow-card);}
+.card h3{font-size:var(--fs-card-title);font-weight:600;margin:0 0 var(--sp-3);
+  letter-spacing:-.02em;}
+.card-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:var(--sp-3);}
+.card-head h3{margin:0;}
+
+/* 指标卡 */
+.metric{background:var(--card);border-radius:var(--radius);padding:var(--sp-4) 18px;
+  box-shadow:var(--shadow-card);}
+.metric .lab{font-size:var(--fs-caption);color:var(--muted);}
+.metric .val{font-size:var(--fs-metric);font-weight:600;margin-top:var(--sp-1);
+  letter-spacing:-.6px;font-variant-numeric:tabular-nums;}
+.metric .val.red{color:var(--red);}
+.metric .val.green{color:var(--green);}
+/* --faint 在白底对比度不足 4.5:1，脚注改回 --muted */
+.metric .foot{font-size:var(--fs-caption);color:var(--muted);margin-top:var(--sp-1);
+  font-variant-numeric:tabular-nums;}
+
+/* 花销洞察：可点击的结论卡（数据实时聚合，点击展开明细） */
+.insight{grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:var(--sp-2);}
+.insight-item{display:block;width:100%;text-align:left;background:var(--fill);
+  border:0;border-radius:var(--radius-sm);padding:var(--sp-3);
+  font-family:inherit;color:var(--text);cursor:pointer;
+  transition:background-color .2s var(--ease),transform .2s var(--ease);}
+.insight-item:hover{background:var(--fill-hover);}
+.insight-item:active{transform:scale(.97);}
+.insight-item .lab{display:block;font-size:var(--fs-caption);color:var(--muted);}
+.insight-item .val{display:block;font-size:18px;font-weight:600;margin-top:var(--sp-1);
+  letter-spacing:-.3px;font-variant-numeric:tabular-nums;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.insight-item .foot{display:block;font-size:var(--fs-micro);color:var(--muted);
+  margin-top:var(--sp-1);line-height:1.45;font-variant-numeric:tabular-nums;}
+.insight-item.empty-val .val{font-size:var(--fs-body);font-weight:400;color:var(--muted);}
+.insight-detail{font-size:var(--fs-body);line-height:1.7;width:100%;}
+.insight-detail table{margin-top:var(--sp-2);}
+.insight-detail .note{font-size:var(--fs-caption);color:var(--muted);margin-top:var(--sp-2);}
+.modal .rows > .note{font-size:var(--fs-caption);color:var(--muted);margin-top:var(--sp-2);}
+@media (max-width:640px){.insight{grid-template-columns:repeat(2,1fr);}}
+
+/* 按钮：胶囊造型 + 彩色轻投影 + 按压阻尼 */
+.btn{border:0;background:var(--primary-weak);color:var(--primary);
+  border-radius:var(--radius-pill);padding:var(--sp-2) 18px;cursor:pointer;
+  font-family:inherit;font-size:var(--fs-body);font-weight:600;line-height:1.4;
+  transition:background-color .25s var(--ease),color .25s var(--ease),
+    box-shadow .25s var(--ease),transform .2s var(--ease);}
+.btn:hover{background:var(--primary-weak-hover);}
+.btn:active{transform:scale(.95);}
+.btn-primary{background:var(--primary);color:#fff;
+  box-shadow:0 3px 10px rgba(0,102,204,.22);}
+.btn-primary:hover{background:var(--primary-hover);color:#fff;
+  transform:translateY(-1px);box-shadow:0 5px 16px rgba(0,102,204,.28);}
+.btn-primary:active{transform:scale(.95);box-shadow:0 2px 6px rgba(0,102,204,.22);}
+.btn-danger{background:var(--red-weak);color:var(--red);}
+.btn-danger:hover{background:rgba(255,59,48,.16);color:var(--red);}
+.btn-danger:active{transform:scale(.95);}
+.btn-sm{padding:var(--sp-1) var(--sp-3);font-size:var(--fs-caption);}
+.btn:focus{outline:none;}
+.btn:focus-visible{outline:2px solid var(--primary-focus);outline-offset:2px;}
+
+.toolbar{display:flex;gap:var(--sp-3);flex-wrap:wrap;align-items:flex-end;
+  margin-bottom:var(--sp-4);}
+.field{display:flex;flex-direction:column;gap:var(--sp-1);}
+.field label{font-size:var(--fs-caption);color:var(--muted);}
+
+/* 输入控件：Apple 灰填充 + 2px 蓝色聚焦环 */
+input,select{border:1px solid transparent;border-radius:var(--radius-sm);
+  padding:var(--sp-2) var(--sp-3);font-family:inherit;font-size:var(--fs-body);
+  line-height:1.4;background:var(--fill);color:var(--text);
+  transition:background-color .2s var(--ease),box-shadow .2s var(--ease);}
+input:hover,select:hover{background:var(--fill-hover);}
+input:focus,select:focus{outline:none;background:var(--fill);
+  box-shadow:0 0 0 2px var(--primary-focus);}
+
+/* 类型切换（支出/收入/转账） */
+.seg{display:inline-flex;gap:2px;padding:2px;background:var(--fill);
+  border-radius:10px;margin-bottom:var(--sp-4);}
+.seg button{border:0;background:transparent;padding:5px 18px;border-radius:var(--radius-xs);
+  cursor:pointer;font-family:inherit;font-size:var(--fs-body);line-height:1.4;color:var(--muted);
+  transition:color .2s var(--ease),background .2s var(--ease),box-shadow .2s var(--ease);}
+.seg button:hover{color:var(--text);}
+.seg button.on{background:#fff;color:var(--text);font-weight:600;
+  box-shadow:0 1px 3px rgba(0,0,0,.1),0 0 0 .5px rgba(0,0,0,.02);}
+.seg button[data-type="expense"].on{color:var(--red);}
+.seg button[data-type="income"].on{color:#248a3d;}
+
+/* 表格：发丝分割线 + 行反馈，金额统一等宽数字右对齐 */
+table{width:100%;border-collapse:collapse;font-size:var(--fs-body);}
+th{text-align:left;color:var(--muted);font-weight:600;font-size:var(--fs-caption);
+  padding:var(--sp-2) 8px;border-bottom:.5px solid var(--hair);}
+td{padding:var(--sp-2) 8px;border-bottom:.5px solid var(--hair);}
+tbody tr{transition:background-color .15s var(--ease);}
+tbody tr:hover{background:rgba(0,102,204,.025);}
+tbody tr:focus-within{background:rgba(0,102,204,.04);}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+tr:last-child td{border-bottom:0;}
+#ov-accounts,#ana-table{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+#ov-accounts table,#ana-table table{min-width:600px;}
+
+.tag{display:inline-block;padding:1px 9px;border-radius:var(--radius-pill);
+  font-size:11.5px;font-weight:600;}
+.tag-cash{background:rgba(0,113,227,.1);color:#0060c8;}
+.tag-bank{background:rgba(52,199,89,.16);color:#248a3d;}
+.tag-wealth{background:rgba(255,204,0,.24);color:#8a6d00;}
+.tag-invest{background:rgba(255,149,0,.14);color:#a16000;}
+.tag-liab{background:var(--red-weak);color:#c0392b;}
+/* 记账实时预览 */
+.tx-hint{font-size:12.5px;color:var(--muted);line-height:1.7;
+  padding:var(--sp-2) 2px 0;font-variant-numeric:tabular-nums;}
+.tx-hint:empty{display:none;}
+.tx-hint b{color:var(--text);font-weight:600;}
+.tx-hint b.warn{color:var(--red);}
+.role-chip{display:inline-block;padding:1px 8px;border-radius:20px;font-size:var(--fs-micro);
+  background:var(--fill);color:var(--muted);margin-right:6px;font-weight:600;}
+/* 账户表分组行 */
+tr.grp td{padding:var(--sp-2) 10px;background:var(--fill);border-bottom:0;}
+.grp-in{display:flex;justify-content:space-between;align-items:center;
+  font-size:var(--fs-caption);color:var(--muted);font-weight:600;}
+.grp-in em{font-style:normal;font-variant-numeric:tabular-nums;}
+/* 空状态：给一块浅表面，不再只是一行灰字 */
+.empty{color:var(--muted);font-size:var(--fs-body);
+  padding:var(--sp-8) var(--sp-4);text-align:center;line-height:1.7;
+  background:var(--fill);border-radius:var(--radius-sm);}
+.chart-box{position:relative;width:100%;height:260px;}
+.chart-box.sm{height:220px;}
+.muted{color:var(--muted);font-size:12.5px;}
+.pos{color:var(--red);}
+.neg{color:var(--green);}
+
+/* 弹窗 */
+.modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.32);display:none;
+  align-items:flex-start;justify-content:center;padding:60px 16px;z-index:50;overflow:auto;}
+.modal-mask.show{display:flex;animation:maskIn .18s ease;}
+@keyframes maskIn{from{opacity:0;}to{opacity:1;}}
+.modal{background:#fff;border-radius:var(--radius);padding:22px var(--sp-6);
+  width:100%;max-width:520px;box-shadow:var(--shadow-pop);
+  animation:sheetIn .45s var(--ease);}
+@keyframes sheetIn{from{opacity:0;transform:translateY(14px) scale(.98);}
+  to{opacity:1;transform:none;}}
+.modal h3{margin:0 0 16px;font-size:16px;font-weight:600;letter-spacing:-.3px;}
+.modal .rows{display:flex;flex-direction:column;gap:10px;max-height:55vh;overflow:auto;padding-right:4px;}
+.modal .row{display:flex;gap:10px;align-items:center;}
+.modal .row .name{flex:1;font-size:13px;}
+.modal .row .name small{color:var(--muted);}
+.modal .foot{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;}
+
+/* 统一提示弹窗 */
+.alert-mask{position:fixed;inset:0;z-index:60;display:none;
+  align-items:center;justify-content:center;padding:24px;
+  background:rgba(0,0,0,.28);
+  -webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);}
+.alert-mask.show{display:flex;animation:maskIn .18s ease;}
+.alert-box{background:#fff;border-radius:20px;width:100%;max-width:332px;
+  padding:26px var(--sp-6) 20px;text-align:center;
+  box-shadow:var(--shadow-pop);animation:alertIn .3s var(--ease);}
+.alert-box:focus{outline:none;}
+@keyframes alertIn{from{opacity:0;transform:scale(.94);}to{opacity:1;transform:none;}}
+.alert-icon{width:46px;height:46px;border-radius:50%;margin:0 auto 14px;
+  display:flex;align-items:center;justify-content:center;}
+.alert-icon svg{width:24px;height:24px;display:block;}
+.alert-icon.info{background:var(--primary-weak);color:var(--primary-focus);}
+.alert-icon.success{background:rgba(52,199,89,.14);color:#248a3d;}
+.alert-icon.error{background:rgba(255,59,48,.12);color:#d70015;}
+.alert-box h3{margin:0 0 8px;font-size:17px;font-weight:600;letter-spacing:-.3px;}
+.alert-box p{margin:0;font-size:13.5px;line-height:1.65;color:var(--muted);
+  white-space:pre-line;word-break:break-word;}
+.alert-ok{width:100%;margin-top:20px;justify-content:center;padding:10px 16px;font-size:14px;}
+
+.list-item{display:flex;align-items:center;gap:10px;padding:10px 8px;
+  border-bottom:.5px solid var(--hair);font-size:var(--fs-body);
+  border-radius:var(--radius-xs);transition:background-color .15s var(--ease);}
+.list-item:hover{background:rgba(0,102,204,.025);}
+.list-item:last-child{border-bottom:0;}
+.list-item .grow{flex:1;min-width:0;}
+.list-item .note{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.list-item .amt{font-weight:600;font-variant-numeric:tabular-nums;}
+
+.help{background:var(--primary-weak);border-radius:var(--radius-sm);
+  padding:var(--sp-3) var(--sp-4);font-size:12.5px;color:#0060c8;
+  margin-bottom:var(--sp-4);line-height:1.7;}
+
+/* 移动端 */
+@media (max-width:640px){
+  .wrap{padding:0 14px 60px;}
+  .head-inner{display:block;padding:10px 52px 10px 14px;}
+  .eye-btn{right:14px;}
+  nav{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;}
+  nav button{padding:6px 0;text-align:center;font-size:12.5px;}
+  .card,.metric{padding:var(--sp-4);}
+  .metric .val{font-size:var(--fs-metric-sm);letter-spacing:-.4px;}
+  .metric .foot{font-size:var(--fs-micro);}
+  .modal-mask{padding:var(--sp-6) var(--sp-3);}
+  .chart-box{height:230px;}
+  .toolbar .field{flex:1 1 130px;}
+  .toolbar .field input,.toolbar .field select{width:100%;}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important;}
+}
+</style>
+<style id="mobile-skin">
+/* 手机端皮肤：只在 640px 以下生效，电脑端完全不受影响。
+   与根目录 index.html 的样式互不干扰，因此可以直接在此调参。 */
+@media (max-width:640px){
+  body{-webkit-tap-highlight-color:transparent;
+       padding-bottom:env(safe-area-inset-bottom);}
+  header{padding-top:env(safe-area-inset-top);}
+  .wrap{padding-left:14px;padding-right:14px;}
+  /* iOS 在字号 <16px 的输入框聚焦时会放大整页，锁到 16px 避免跳动 */
+  input,select,textarea{font-size:16px;}
+  .seg button{font-size:14px;padding:6px 20px;}
+  /* 指标卡两列，避免单列把首屏撑得太长 */
+  .cards{grid-template-columns:repeat(2,1fr);gap:10px;}
+  /* 奇数张时最后一张通栏，避免右下角留一块空白 */
+  .cards>*:last-child:nth-child(odd){grid-column:1 / -1;}
+  .metric{padding:12px 14px;border-radius:16px;}
+  .metric .lab{font-size:11.5px;}
+  .metric .val{font-size:19px;letter-spacing:-.3px;margin-top:2px;}
+  .metric .foot{font-size:10.5px;line-height:1.35;margin-top:2px;}
+  /* 账户表 → 卡片：名称+类型在左，余额在右，操作按钮落到底部一行 */
+  #ov-accounts{overflow-x:visible;}
+  #ov-accounts table{display:block;min-width:0;}
+  #ov-accounts thead{display:none;}
+  #ov-accounts tbody{display:block;}
+  #ov-accounts tr.grp{display:block;}
+  #ov-accounts tr.grp>td{display:block;padding:0;border:0;}
+  #ov-accounts tr.grp .grp-in{padding:12px 2px 4px;}
+  #ov-accounts tr:not(.grp){
+    display:grid;grid-template-columns:1fr auto;gap:2px 10px;
+    background:var(--fill);border-radius:14px;
+    padding:12px 14px;margin:8px 0;}
+  #ov-accounts tr:not(.grp)>td{display:block;padding:0;border:0;}
+  #ov-accounts tr:not(.grp)>td:nth-child(1){grid-column:1;font-size:15px;line-height:1.5;}
+  #ov-accounts tr:not(.grp)>td:nth-child(2){grid-column:1;}
+  #ov-accounts tr:not(.grp)>td:nth-child(3){
+    grid-column:2;grid-row:1 / span 2;align-self:center;
+    text-align:right;font-size:19px;font-weight:600;letter-spacing:-.4px;}
+  #ov-accounts tr:not(.grp)>td:nth-child(4){
+    grid-column:1 / -1;margin-top:10px;
+    text-align:left!important;white-space:normal!important;
+    display:flex;gap:8px;flex-wrap:wrap;}
+  #ov-accounts tr:not(.grp)>td:nth-child(4) .btn{flex:1 1 0;text-align:center;}
+  /* 明细列表：日期栏收窄，文字允许折行 */
+  .list-item{gap:8px;padding:10px 4px;align-items:flex-start;}
+  .list-item>span:first-child{width:40px!important;font-size:12px;padding-top:2px;}
+  .list-item .grow span{font-size:13px;line-height:1.5;word-break:break-word;}
+  .list-item .amt{font-size:13.5px;white-space:nowrap;}
+  /* 「规则生成」在窄屏挤掉正文、导致「支出」被拆成两行，隐藏（「自动」标签已表达同义） */
+  #led-list .list-item>span[style*="nowrap"]{display:none;}
+  /* 洞察卡与卡片内边距 */
+  .insight{padding:0;}
+  .insight-item{padding:10px 12px;}
+  .insight-item .val{font-size:17px;}
+  .card{padding:14px;}
+  .card h3{font-size:14px;}
+  /* 弹窗贴底，手指够得着 */
+  .modal-mask{padding:0;align-items:flex-end;}
+  .modal{max-width:none;border-radius:20px 20px 0 0;
+         padding:20px 18px calc(20px + env(safe-area-inset-bottom));
+         animation:sheetUp .32s var(--ease);}
+  @keyframes sheetUp{from{transform:translateY(40px);opacity:0;}to{transform:none;opacity:1;}}
+  .modal .rows{max-height:58vh;-webkit-overflow-scrolling:touch;}
+  .modal .foot{position:sticky;bottom:0;background:#fff;padding-top:12px;}
+  .modal .foot .btn{flex:1 1 0;text-align:center;padding:11px 16px;}
+  /* 分析页表格 → 卡片：6 列在小屏只能横向拖，改成「名称一行 + 五项两列」 */
+  #ana-table{overflow-x:visible;}
+  #ana-table table{display:block;min-width:0;}
+  #ana-table thead{display:none;}
+  #ana-table tbody{display:block;}
+  #ana-table tr{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;
+    background:var(--fill);border-radius:14px;padding:12px 14px;margin:8px 0;}
+  #ana-table td{display:block;border:0;padding:0;text-align:left;font-size:13px;
+    font-weight:600;font-variant-numeric:tabular-nums;}
+  #ana-table td::before{display:block;font-size:11px;font-weight:400;
+    color:var(--muted);margin-bottom:1px;}
+  #ana-table td:nth-child(1){grid-column:1 / -1;font-size:15px;font-weight:600;padding-bottom:2px;}
+  #ana-table td:nth-child(1)::before{content:none;}
+  #ana-table td:nth-child(2)::before{content:'建账余额';}
+  #ana-table td:nth-child(3)::before{content:'净投入';}
+  #ana-table td:nth-child(4)::before{content:'盈亏';}
+  #ana-table td:nth-child(5)::before{content:'当前余额';}
+  #ana-table td:nth-child(6)::before{content:'收益率';}
+  .chart-box{height:200px;}
+  .chart-box.sm{height:180px;}
+  h2{font-size:16px;}
+  .btn{padding:7px 16px;}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="head-inner">
+    <nav id="nav"></nav>
+    <button class="eye-btn" id="privacy-btn" type="button" aria-label="显示金额" aria-pressed="false" title="显示金额">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" id="privacy-icon"></svg>
+    </button>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="help" id="boot-error" style="display:none;background:rgba(255,59,48,.08);color:#c0392b"></div>
+
+<section id="tab-overview" class="tab show">
+  <div class="help" id="ov-help" style="display:none"></div>
+  <div class="grid cards" id="ov-metrics"></div>
+  <div class="card" id="insight-card" style="margin-top:14px">
+    <div class="card-head">
+      <h3>花销洞察</h3>
+      <span class="muted" id="insight-scope"></span>
+      <span style="flex:1"></span>
+      <span class="muted" style="font-size:11px">点击指标查看明细</span>
+    </div>
+    <div class="grid insight" id="insight-grid"></div>
+  </div>
+  <div class="card" id="dca-card" style="margin-top:14px">
+    <div class="card-head">
+      <h3>每日定投</h3>
+      <span style="flex:1"></span>
+      <button class="btn btn-primary btn-sm" onclick="openDcaModal()">设置</button>
+      <button class="btn btn-sm" onclick="removeDca()" id="dca-remove" style="display:none">清除</button>
+    </div>
+    <div id="dca-summary"></div>
+  </div>
+  <div class="grid two" style="margin-top:14px">
+    <div class="card">
+      <h3>资产构成</h3>
+      <div class="chart-box"><canvas id="c-ov-comp"></canvas></div>
+    </div>
+    <div class="card">
+      <h3>净资产趋势</h3>
+      <div class="chart-box"><canvas id="c-ov-net"></canvas></div>
+    </div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <div class="card-head">
+      <h3>账户</h3>
+      <span style="flex:1"></span>
+      <button class="btn btn-primary btn-sm" onclick="openAccountModal()">添加账户</button>
+    </div>
+    <div id="ov-accounts"></div>
+  </div>
+</section>
+
+<section id="tab-ledger" class="tab">
+  <div class="card">
+    <h3>记一笔</h3>
+    <div class="seg" id="tx-kind">
+      <button type="button" data-type="expense" class="on">支出</button>
+      <button type="button" data-type="income">收入</button>
+      <button type="button" data-type="transfer">转账</button>
+    </div>
+    <form class="toolbar" id="tx-form" style="margin-bottom:0">
+      <div class="field" style="flex:0 0 126px">
+        <label>日期</label><input type="date" id="tx-date" required>
+      </div>
+      <div class="field" style="flex:0 0 114px">
+        <label>金额 (¥)</label>
+        <input type="number" id="tx-amount" step="0.01" min="0.01" placeholder="0.00" required>
+      </div>
+      <div class="field" id="f-cat" style="flex:0 0 96px">
+        <label>分类</label><select id="tx-cat"></select>
+      </div>
+      <div class="field" id="f-from" style="flex:1 1 128px">
+        <label id="lbl-from">账户</label><select id="tx-acct"></select>
+      </div>
+      <div class="field" id="f-to" style="flex:1 1 128px;display:none">
+        <label>转入账户</label><select id="tx-to"></select>
+      </div>
+      <div class="field" style="flex:1 1 128px">
+        <label>备注 (可选)</label>
+        <input type="text" id="tx-note" maxlength="60" placeholder="如：午饭">
+      </div>
+      <button class="btn btn-primary" type="submit" id="tx-submit">添加</button>
+    </form>
+    <div class="tx-hint" id="tx-hint"></div>
+  </div>
+
+  <div class="card" id="fixed-card" style="margin-top:14px">
+    <div class="card-head">
+      <h3>每日固定支出</h3>
+      <span style="flex:1"></span>
+      <button class="btn btn-primary btn-sm" onclick="openFixedModal()">设置</button>
+      <button class="btn btn-sm" onclick="removeFixed()" id="fixed-remove" style="display:none">清除</button>
+    </div>
+    <div id="fixed-summary"></div>
+  </div>
+
+  <div class="grid cards" id="led-metrics" style="margin-top:14px"></div>
+
+  <div class="grid two" style="margin-top:14px">
+    <div class="card">
+      <div class="card-head">
+        <h3>支出构成</h3>
+        <span style="flex:1"></span>
+        <input type="month" id="led-month" style="width:132px">
+      </div>
+      <div class="chart-box"><canvas id="c-led-cat"></canvas></div>
+    </div>
+    <div class="card">
+      <h3>近 6 个月收支</h3>
+      <div class="chart-box"><canvas id="c-led-month"></canvas></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="card-head">
+      <h3>明细</h3>
+      <span style="flex:1"></span>
+      <span class="muted" id="led-month-label"></span>
+    </div>
+    <div id="led-list"></div>
+  </div>
+</section>
+
+<section id="tab-analysis" class="tab">
+  <div class="card">
+    <div class="card-head">
+      <h3>净资产变化</h3>
+      <span style="flex:1"></span>
+      <select id="ana-period" style="width:130px">
+        <option value="3">近 3 个月</option>
+        <option value="6">近 6 个月</option>
+        <option value="12" selected>近 12 个月</option>
+        <option value="0">全部</option>
+      </select>
+    </div>
+    <div class="chart-box"><canvas id="c-ana-net"></canvas></div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <h3>账户盈亏 <span class="muted" style="font-weight:400">（市值变动 − 资金进出）</span></h3>
+    <div class="chart-box"><canvas id="c-ana-rate"></canvas></div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <h3>账户收益明细</h3>
+    <div id="ana-table"></div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <h3>近 6 个月收支趋势</h3>
+    <div class="chart-box"><canvas id="c-ana-exp"></canvas></div>
+  </div>
+</section>
+
+<section id="tab-data" class="tab">
+  <div class="card">
+    <h3>数据说明</h3>
+    <p class="muted" style="margin:0" id="data-desc"></p>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3>资产分类规则</h3>
+    <div class="muted" style="margin:0;line-height:1.85">
+      <b style="color:var(--text)">活期 / 银行卡</b>：两个独立分类，各自单独核算余额，不再合并成一个数字；两者同属「日常可用」。<br>
+      <b style="color:var(--text)">银行理财（类纯债）</b>：单独建账、单独汇总，既不计入活期，也不计入银行卡的可用余额。<br>
+      <b style="color:var(--text)">长期持有</b>：定期 / 股票 / 基金 / 其他资产，与银行理财分开统计。<br>
+      净资产 = 日常可用 + 银行理财 + 长期持有 − 负债；资产构成图按上述类型分别着色。
+    </div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3>自动结算规则 · 定投与固定支出</h3>
+    <div class="muted" style="margin:0;line-height:1.85">
+      <b style="color:var(--text)">触发时机</b>：没有常驻进程，脚本不运行期间不单独触发扣款；每次打开页面按「截至今天」的日历一次性结算。<br>
+      <b style="color:var(--text)">补扣范围</b>：补齐起始日以来所有应扣未扣的计费日，含当天。例：上次扣款在周一、周五才重新打开 → 补周二/三/四 + 周五，共 4 笔。<br>
+      <b style="color:var(--text)">周期边界</b>：一个自然日 = 一个计费周期，当天至多一笔；未来不预扣；改金额从当天起生效，历史不重算，当天只按新金额算一次。<br>
+      <b style="color:var(--text)">防重复</b>：扣款由「配置版本 + 日历」无状态派生，不写入流水表。刷新、重启、导入导出后结果恒等，不会重复扣。<br>
+      <b style="color:var(--text)">影响范围</b>：只改变两个账户的余额与投资净投入口径；不计入收支统计、明细列表和 CSV；账户间转移，净资产总额不变。
+    </div>
+    <div class="muted" style="margin:14px 0 0;line-height:1.85;padding-top:12px;border-top:.5px solid var(--hair)">
+      <b style="color:var(--text)">每日固定支出</b>：触发时机、补齐范围、周期边界、防重复与定投共用同一套按日历派生规则。区别是它生成「支出」而非转账：<br>
+      · 计入本月支出与分类统计、显示在明细里（标「自动」，不可单条删除）、随 CSV 一起导出；<br>
+      · 净资产逐日减少，趋势曲线同步体现；<br>
+      · 改金额、改分类、启用或停用都只从当天起生效，历史保持原样；只有清除配置才会移除历史。
+    </div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3>备份与恢复</h3>
+    <p class="muted" style="margin:0 0 12px">定期导出 JSON 放到网盘或移动硬盘，即使数据库损坏也能完整恢复。</p>
+    <div class="toolbar" style="margin-bottom:0">
+      <button class="btn btn-primary" onclick="exportJSON()">导出完整备份 (JSON)</button>
+      <button class="btn" onclick="importJSON()">导入备份 (JSON)</button>
+      <button class="btn" onclick="exportCSV('transactions')">导出流水 (CSV)</button>
+      <button class="btn" onclick="exportCSV('accounts')">导出账户 (CSV)</button>
+      <input type="file" id="import-file" accept=".json" style="display:none" onchange="doImportJSON(event)">
+    </div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3>体验与重置</h3>
+    <div class="toolbar" style="margin-bottom:0">
+      <button class="btn" onclick="loadDemo()">载入示例数据（覆盖现有数据）</button>
+      <button class="btn btn-danger" onclick="clearAll()">清空全部数据</button>
+    </div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <h3>当前数据规模</h3>
+    <div id="data-stats" class="muted"></div>
+  </div>
+</section>
+</div>
+
+<div class="modal-mask" id="modal-mask">
+  <div class="modal">
+    <h3 id="modal-title"></h3>
+    <div class="rows" id="modal-body"></div>
+    <div class="foot">
+      <button class="btn" id="modal-cancel" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" id="modal-ok">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="alert-mask" id="alert-mask" role="alertdialog" aria-modal="true"
+     aria-labelledby="alert-title" aria-describedby="alert-text">
+  <div class="alert-box" tabindex="-1">
+    <div class="alert-icon info" id="alert-icon"></div>
+    <h3 id="alert-title">提示</h3>
+    <p id="alert-text"></p>
+    <button class="btn btn-primary alert-ok" id="alert-ok">确定</button>
+  </div>
+</div>
+
+<script src="localdb.js"></script>
+<script src="lib/chart.umd.min.js"></script>
+<script>
+if (typeof Chart === 'undefined') {
+  document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"><\/script>');
+}
+</script>
+<script>
+'use strict';
+
+/* ================= 基础配置 ================= */
+var TYPE_META = {
+  deposit:   {label:'活期',                color:'#0071e3', kind:'cash',      role:'daily'},
+  bank:      {label:'银行卡',              color:'#34c759', kind:'cash',      role:'daily'},
+  bankwealth:{label:'银行理财（类纯债）',   color:'#ffcc00', kind:'invest',    role:'wealth'},
+  fixed:     {label:'定期存款',            color:'#30b0c7', kind:'cash',      role:'hold'},
+  stock:     {label:'股票',                color:'#ff3b30', kind:'invest',    role:'hold'},
+  fund:      {label:'基金',                color:'#ff9500', kind:'invest',    role:'hold'},
+  other:     {label:'其他资产',            color:'#5856d6', kind:'invest',    role:'hold'},
+  liability: {label:'负债',                color:'#a13ff6', kind:'liability', role:'debt'}
+};
+/* 活期与银行卡同为日常可用，但在分类、构成图、汇总里各自独立。
+   银行理财是独立角色，不并入活期/银行卡/长期持有任一余额。 */
+var ROLE_META = {
+  daily:  {label:'日常可用',           short:'日常', inLedger:true,
+           desc:'活期与银行卡分开核算，日常收支默认从这里扣'},
+  wealth: {label:'银行理财（类纯债）', short:'理财', inLedger:true,
+           desc:'单独记账、单独汇总，不计入活期或银行卡的可用余额'},
+  hold:   {label:'长期持有',           short:'长期', inLedger:true,
+           desc:'不参与日常消费，只在转账或更新市值时变动'},
+  debt:   {label:'负债',               short:'负债', inLedger:false, suffix:'（欠款）',
+           desc:'欠款，不计入可用资金'}
+};
+/* 角色顺序、下拉分组、账户表分段全部由 ROLE_META 派生，新增角色只改上面一处 */
+var ROLE_ORDER = Object.keys(ROLE_META);
+var NON_TRANSFER_ROLES = ROLE_ORDER.filter(function(r){ return ROLE_META[r].inLedger !== false; });
+
+/* 页签注册表：新增页签只需在此加一条 + 在 HTML 里加 <section id="tab-xxx"> */
+var TABS = [
+  {id:'overview', label:'资产', render:function(){ renderOverview(); }},
+  {id:'ledger',   label:'记账', render:function(){ renderLedger(); }},
+  {id:'analysis', label:'分析', render:function(){ renderAnalysis(); }},
+  {id:'data',     label:'数据', render:function(){ renderData(); }}
+];
+function tabById(id){
+  for (var i=0;i<TABS.length;i++) if (TABS[i].id === id) return TABS[i];
+  return TABS[0];
+}
+function buildNav(){
+  var nav = document.getElementById('nav');
+  if (!nav) return;
+  nav.innerHTML = TABS.map(function(t){
+    return '<button data-tab="' + t.id + '"' +
+      (t.id === activeTab ? ' class="active"' : '') + '>' + t.label + '</button>';
+  }).join('');
+}
+
+/* 虚拟流水种类：唯一常量 + 唯一过滤器，避免魔法字符串散落各处 */
+var AUTO_KIND = {DCA:'dca', FIXED:'fixed'};
+function autoTxOf(kind){
+  return db.autoTx.filter(function(t){ return t.autoKind === kind; });
+}
+var EX_CATS = ['餐饮','交通','购物','居住','娱乐','医疗','教育','通讯','人情','其他'];
+var IN_CATS = ['工资','奖金','投资收益','红包','报销','其他'];
+var CAT_COLORS = ['#0071e3','#ff9500','#ff3b30','#30b0c7','#5856d6','#af52de','#ff2d55','#34c759','#ffcc00','#8e8e93'];
+var LS_KEY = 'pfa_data_v1';
+
+/* 金额隐私：默认隐藏，刷新/重新打开即恢复隐藏；点顶部眼睛切换 */
+var privacyOn = true;
+var PRIVACY_MASK = '••••';
+
+/* autoTx = 每日定投的虚拟流水（后端按日历派生，不入明细/收支/导出） */
+var db = {accounts:[], transactions:[], dca:[], fixed:[], autoTx:[]};
+var txType = 'expense';
+var activeTab = 'overview';
+var lastAccountId = '';
+
+/* ================= 工具 ================= */
+function today(){
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function thisMonth(){ return today().slice(0,7); }
+/* 三个格式化函数是全部只读金额的出口，隐私开关在这里统一收口。
+   输入控件（value）与导出文件不走这里，始终保留真实数值。 */
+function money(v){
+  if (privacyOn) return PRIVACY_MASK;
+  var n = Math.round((v||0) * 100) / 100;
+  var s = Math.abs(n).toLocaleString('zh-CN', {minimumFractionDigits:2, maximumFractionDigits:2});
+  return (n < 0 ? '-¥' : '¥') + s;
+}
+function moneyShort(v){
+  if (privacyOn) return PRIVACY_MASK;
+  if (Math.abs(v) >= 10000) return (v < 0 ? '-¥' : '¥') + (Math.abs(v)/10000).toFixed(2) + ' 万';
+  return money(v);
+}
+function num(v){
+  if (privacyOn) return PRIVACY_MASK;
+  return (Math.round((v||0)*100)/100).toLocaleString('zh-CN', {minimumFractionDigits:2, maximumFractionDigits:2});
+}
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+  });
+}
+function accountById(id){
+  for (var i=0;i<db.accounts.length;i++) if (db.accounts[i].id === id) return db.accounts[i];
+  return null;
+}
+function kindOf(a){ return (TYPE_META[a.type] || TYPE_META.other).kind; }
+function roleOf(a){ return (TYPE_META[a.type] || TYPE_META.other).role; }
+function accountsByRole(role){
+  return db.accounts.filter(function(a){ return roleOf(a) === role; });
+}
+function sumRole(role){
+  var bal = currentBalances(), s = 0;
+  accountsByRole(role).forEach(function(a){ s += bal[a.id] || 0; });
+  return s;
+}
+
+/* ================= 计算层 ================= */
+function applyTx(bal, t){
+  var a = t.amount;
+  if (t.type === 'transfer'){
+    if (t.accountId) bal[t.accountId] = (bal[t.accountId] || 0) - a;
+    if (t.toAccountId) bal[t.toAccountId] = (bal[t.toAccountId] || 0) + a;
+    return;
+  }
+  if (!t.accountId) return;
+  if (t.type === 'income' || t.type === 'adjust') bal[t.accountId] = (bal[t.accountId] || 0) + a;
+  else if (t.type === 'expense') bal[t.accountId] = (bal[t.accountId] || 0) - a;
+}
+
+function currentBalances(){
+  var bal = {};
+  db.accounts.forEach(function(a){ bal[a.id] = 0; });
+  db.accounts.forEach(function(a){
+    if (!a.initial_date || a.initial_date <= today()) bal[a.id] += a.initial_balance;
+  });
+  db.transactions.forEach(function(t){
+    if (t.date <= today()) applyTx(bal, t);
+  });
+  /* 每日定投：虚拟转账只参与余额推导，不写库、不进明细、不计收支 */
+  db.autoTx.forEach(function(t){
+    if (t.date <= today()) applyTx(bal, t);
+  });
+  return bal;
+}
+
+function netOf(bal){
+  var assets = 0, liab = 0;
+  db.accounts.forEach(function(a){
+    var v = bal[a.id] || 0;
+    if (a.type === 'liability') liab += v; else assets += v;
+  });
+  return {assets: assets, liab: liab, net: assets - liab};
+}
+
+function buildSeries(){
+  var byDate = {};
+  /* 自动支出会让净资产逐日减少，必须进入时间序列；定投 transfer 不改变净资产 */
+  db.transactions.concat(db.autoTx).forEach(function(t){
+    (byDate[t.date] = byDate[t.date] || []).push(t);
+  });
+  var set = {};
+  Object.keys(byDate).forEach(function(d){ set[d] = 1; });
+  db.accounts.forEach(function(a){ if (a.initial_date) set[a.initial_date] = 1; });
+  set[today()] = 1;
+  var dates = Object.keys(set).sort().filter(function(d){ return d <= today(); });
+
+  var bal = {}, applied = {};
+  db.accounts.forEach(function(a){ bal[a.id] = 0; });
+  var out = [];
+  dates.forEach(function(d){
+    db.accounts.forEach(function(a){
+      if (applied[a.id]) return;
+      if (!a.initial_date || a.initial_date <= d){
+        bal[a.id] += a.initial_balance;
+        applied[a.id] = true;
+      }
+    });
+    (byDate[d] || []).forEach(function(t){ applyTx(bal, t); });
+    var n = netOf(bal);
+    out.push({date: d, net: n.net, assets: n.assets, liab: n.liab});
+  });
+  return out;
+}
+
+function monthKey(d){ return d.slice(0,7); }
+
+function monthStats(month){
+  var inc = 0, exp = 0, cnt = 0, byCat = {};
+  /* 自动固定支出要计入收支统计；定投是 transfer，天然不会被统计 */
+  db.transactions.concat(db.autoTx).forEach(function(t){
+    if (monthKey(t.date) !== month) return;
+    if (t.type === 'income'){
+      inc += t.amount; cnt++;
+    } else if (t.type === 'expense'){
+      exp += t.amount; cnt++;
+      byCat[t.category] = (byCat[t.category] || 0) + t.amount;
+    }
+  });
+  return {income: inc, expense: exp, count: cnt, byCat: byCat, balance: inc - exp};
+}
+
+function lastMonths(n){
+  var out = [], d = new Date(), y = d.getFullYear(), m = d.getMonth();
+  for (var i = n-1; i >= 0; i--){
+    var mm = m - i, yy = y;
+    while (mm < 0){ mm += 12; yy -= 1; }
+    out.push(yy + '-' + String(mm+1).padStart(2,'0'));
+  }
+  return out;
+}
+
+/* 投资类账户盈亏：当前余额 − 建账余额 − 净投入（含虚拟定投，避免把投入误算成盈亏） */
+function accountPerf(a, balNow){
+  var t0 = today();
+  var invested = 0, withdrawn = 0, hasMarket = false;
+  db.transactions.concat(db.autoTx).forEach(function(t){
+    if (t.date > t0) return;
+    if (t.type === 'transfer'){
+      if (t.toAccountId === a.id) invested += t.amount;
+      if (t.accountId === a.id) withdrawn += t.amount;
+    } else if (t.accountId === a.id && t.type === 'adjust'){
+      hasMarket = true;
+    }
+  });
+  var netIn = invested - withdrawn;
+  var end = (balNow == null) ? a.initial_balance + netIn : balNow;
+  var gain = end - a.initial_balance - netIn;
+  var base = Math.abs(a.initial_balance) + netIn / 2;
+  if (base < 0.01) base = Math.abs(gain) || 1;
+  return {
+    id: a.id, name: a.name, type: a.type,
+    start: a.initial_balance, invested: netIn, gain: gain,
+    end: end, rate: gain / base, hasMarket: hasMarket
+  };
+}
+
+/* ================= 金额隐私 ================= */
+var EYE_OFF = '<path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>' +
+  '<path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-1.7 2.7"/>' +
+  '<path d="M6.6 6.6A13.5 13.5 0 0 0 2 12s3 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/>' +
+  '<path d="M2 2l20 20"/>';
+var EYE_ON = '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z"/>' +
+  '<circle cx="12" cy="12" r="2.8"/>';
+function updatePrivacyBtn(){
+  var btn = document.getElementById('privacy-btn');
+  if (!btn) return;
+  document.getElementById('privacy-icon').innerHTML = privacyOn ? EYE_OFF : EYE_ON;
+  var label = privacyOn ? '显示金额' : '隐藏金额';
+  btn.setAttribute('aria-label', label);
+  btn.setAttribute('aria-pressed', String(!privacyOn));
+  btn.title = label;
+}
+function togglePrivacy(){
+  privacyOn = !privacyOn;
+  updatePrivacyBtn();
+  renderAll();
+}
+document.getElementById('privacy-btn').addEventListener('click', togglePrivacy);
+
+/* ================= 通用弹窗 ================= */
+var ALERT_SVG = {
+  info:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9.2"/><path d="M12 11.2v5"/><path d="M12 7.6h.01"/></svg>',
+  success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M7.8 12.3l2.8 2.8 5.6-5.8"/></svg>',
+  error:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9.2"/><path d="M9 9l6 6M15 9l-6 6"/></svg>'
+};
+var alertOpen = false, alertLastFocus = null;
+
+function alertKind(msg, opt){
+  if (opt && opt.kind) return opt.kind;
+  if (/失败|错误|异常|无法|不可恢复/.test(msg)) return 'error';
+  if (/成功|已完成|完成：|已载入|已写入|已迁移/.test(msg)) return 'success';
+  return 'info';
+}
+function showAlert(msg, opt){
+  opt = opt || {};
+  var text = String(msg == null ? '' : msg);
+  var kind = alertKind(text, opt);
+  alertLastFocus = document.activeElement;
+  document.getElementById('alert-text').textContent = text;
+  document.getElementById('alert-title').textContent = opt.title ||
+    (kind === 'error' ? '操作失败' : kind === 'success' ? '已完成' : '提示');
+  var ic = document.getElementById('alert-icon');
+  ic.className = 'alert-icon ' + kind;
+  ic.innerHTML = ALERT_SVG[kind];
+  document.getElementById('alert-mask').classList.add('show');
+  alertOpen = true;
+  setTimeout(function(){
+    var box = document.querySelector('#alert-mask .alert-box');
+    if (box) box.focus();
+  }, 30);
+}
+function closeAlert(){
+  if (!alertOpen) return;
+  alertOpen = false;
+  document.getElementById('alert-mask').classList.remove('show');
+  var prev = alertLastFocus; alertLastFocus = null;
+  if (prev && prev.focus){ try { prev.focus(); } catch(e){} }
+}
+document.getElementById('alert-ok').addEventListener('click', closeAlert);
+document.addEventListener('keydown', function(e){
+  if (!alertOpen) return;
+  if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' '){
+    e.preventDefault(); e.stopPropagation(); closeAlert();
+  }
+}, true);
+window.alert = function(msg){ showAlert(msg); };
+
+/* ================= 表单弹窗 ================= */
+var modalOK = null;
+function openModal(title, bodyHTML, onOK, okLabel, hideCancel){
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-body').innerHTML = bodyHTML;
+  modalOK = onOK;
+  document.getElementById('modal-ok').textContent = okLabel || '保存';
+  var cancel = document.getElementById('modal-cancel');
+  if (cancel) cancel.style.display = hideCancel ? 'none' : '';
+  document.getElementById('modal-mask').classList.add('show');
+}
+function closeModal(){
+  document.getElementById('modal-mask').classList.remove('show');
+  modalOK = null;
+}
+document.getElementById('modal-ok').addEventListener('click', async function(){
+  if (!modalOK) return;
+  var btn = this; btn.disabled = true;
+  try {
+    var r = await modalOK();
+    if (r !== false) closeModal();
+  } catch(e){
+    alert(e.message || '保存失败');
+  } finally {
+    btn.disabled = false;
+  }
+});
+document.getElementById('modal-mask').addEventListener('click', function(e){
+  if (e.target === this) closeModal();
+});
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape' && !alertOpen) closeModal();
+});
+
+/* ================= 接口 ================= */
+async function api(path, opts){
+  if (window.localApi) return window.localApi(path, opts);
+  opts = opts || {};
+  if (opts.body && typeof opts.body !== 'string'){
+    opts.headers = Object.assign({'Content-Type':'application/json'}, opts.headers || {});
+    opts.body = JSON.stringify(opts.body);
+  }
+  var res = await fetch(path, opts);
+  var data = null;
+  try { data = await res.json(); } catch(e){}
+  if (!res.ok) throw new Error((data && data.error) || ('请求失败 ' + res.status));
+  return data;
+}
+
+function normalize(d){
+  var accounts = (d.accounts || []).map(function(a){
+    return {
+      id: a.id, name: a.name || '未命名',
+      type: (a.type === 'cash' ? 'deposit' : (TYPE_META[a.type] ? a.type : 'other')),
+      initial_balance: +a.initial_balance || 0,
+      initial_date: a.initial_date || '',
+      note: a.note || '',
+      parentAccountId: a.parentAccountId || a.parent_account_id || ''
+    };
+  });
+  var transactions = (d.transactions || []).map(function(t){
+    return {
+      id: t.id, date: t.date, type: t.type,
+      accountId: t.accountId || '', toAccountId: t.toAccountId || '',
+      category: t.category || '', amount: +t.amount || 0, note: t.note || ''
+    };
+  });
+  var dca = (d.dca || []).map(function(v){
+    return {
+      id: v.id, effectiveFrom: v.effectiveFrom || '', amount: +v.amount || 0,
+      fromId: v.fromId || '', toId: v.toId || '',
+      weekdaysOnly: v.weekdaysOnly !== false, enabled: v.enabled !== false
+    };
+  });
+  var fixed = (d.fixed || []).map(function(v){
+    return {
+      id: v.id, effectiveFrom: v.effectiveFrom || '', amount: +v.amount || 0,
+      accountId: v.accountId || '', category: v.category || '其他',
+      weekdaysOnly: v.weekdaysOnly === true, enabled: v.enabled !== false
+    };
+  });
+  /* autoTx 含两类：dca=transfer（净资产不变）、fixed=expense（净资产减少） */
+  var autoTx = (d.autoTransactions || []).map(function(t){
+    return {
+      date: t.date, type: t.type || 'transfer',
+      accountId: t.accountId || '', toAccountId: t.toAccountId || '',
+      category: t.category || '', amount: +t.amount || 0,
+      note: t.note || '', auto: true, autoKind: t.autoKind || AUTO_KIND.DCA
+    };
+  });
+  return {accounts: accounts, transactions: transactions,
+          dca: dca, fixed: fixed, autoTx: autoTx};
+}
+
+async function reload(){
+  db = normalize(await api('/api/data'));
+  renderAll();
+}
+
+/* ================= 渲染：资产总览 ================= */
+var charts = {};
+function draw(id, cfg){
+  var el = document.getElementById(id);
+  if (!el || typeof Chart === 'undefined') return;
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(el, cfg);
+}
+function baseOpts(extra){
+  var horizontal = !!(extra && extra.indexAxis === 'y');
+  var catAxis = {grid:{display:false}, ticks:{font:{size:11}, color:'rgba(60,60,67,.62)'}, border:{display:false}};
+  var numAxis = {grid:{color:'rgba(0,0,0,.05)'}, border:{display:false},
+    ticks:{font:{size:11}, color:'rgba(60,60,67,.62)',
+      callback:function(v){ return privacyOn ? '' : (Math.abs(v)>=10000 ? (v/10000)+'万' : v); }}};
+  var timeAxis = {grid:{display:false}, border:{display:false},
+    ticks:{font:{size:11}, color:'rgba(60,60,67,.62)', maxTicksLimit:8, autoSkip:true, maxRotation:0}};
+
+  var o = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: {mode:'index', intersect:false},
+    plugins: {
+      legend: {display:false},
+      tooltip: {
+        backgroundColor:'rgba(0,0,0,.82)', padding:10, cornerRadius:8,
+        titleFont:{size:12}, bodyFont:{size:12},
+        callbacks: {
+          label: function(ctx){
+            var v = ctx.parsed;
+            if (v && typeof v === 'object') v = (typeof v.y === 'number' ? v.y : v.x);
+            return ctx.dataset.label + '：' + money(v);
+          }
+        }
+      }
+    },
+    scales: horizontal
+      ? {x: numAxis, y: catAxis}
+      : {x: timeAxis, y: numAxis}
+  };
+  if (extra) {
+    Object.keys(extra).forEach(function(k){
+      if (k === 'plugins') o.plugins = Object.assign(o.plugins, extra.plugins);
+      else if (k !== 'indexAxis') o[k] = extra[k];
+      else o.indexAxis = extra[k];
+    });
+  }
+  return o;
+}
+
+/* ================= 花销洞察 ================= */
+/* 统一口径：截至今天、仅 type=expense；金额类含规则自动支出，
+   笔数/笔均/频次类仅手动记录。全部实时由 db 聚合，不缓存、不落库。
+   隐私态下金额、占比、笔数、排名一律掩码，避免「笔均 × 笔数」反推总额。 */
+
+function monthShift(ym, delta){
+  var y = +ym.slice(0,4), m = +ym.slice(5,7) - 1 + delta;
+  var d = new Date(y, m, 1);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+}
+function daysInMonth(ym){
+  return new Date(+ym.slice(0,4), +ym.slice(5,7), 0).getDate();
+}
+function shiftDate(iso, delta){
+  var d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + delta);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') +
+    '-' + String(d.getDate()).padStart(2,'0');
+}
+function isWeekend(iso){
+  var w = new Date(iso + 'T00:00:00').getDay();
+  return w === 0 || w === 6;
+}
+function spendIn(from, to){
+  var t0 = today();
+  var end = to > t0 ? t0 : to;
+  return db.transactions.concat(db.autoTx).filter(function(t){
+    return t.type === 'expense' && t.date >= from && t.date <= end && t.date <= t0;
+  });
+}
+function spendTotal(list){
+  return list.reduce(function(s,t){ return s + (t.amount || 0); }, 0);
+}
+function spendManual(list){ return list.filter(function(t){ return !t.auto; }); }
+function spendAuto(list){ return list.filter(function(t){ return !!t.auto; }); }
+function spendByCat(list){
+  var o = {};
+  list.forEach(function(t){
+    var k = t.category || '其他';
+    o[k] = (o[k] || 0) + (t.amount || 0);
+  });
+  return Object.keys(o).map(function(k){ return {cat:k, amount:o[k]}; })
+    .sort(function(a,b){ return b.amount - a.amount; });
+}
+function insText(v){ return privacyOn ? PRIVACY_MASK : v; }
+function insPct(v){ return privacyOn ? PRIVACY_MASK : (Math.round(v*10)/10).toFixed(1) + '%'; }
+function insRate(v){
+  return privacyOn ? PRIVACY_MASK : (v >= 0 ? '+' : '') + (Math.round(v*10)/10).toFixed(1) + '%';
+}
+function insCount(v){ return privacyOn ? PRIVACY_MASK : v + ' 笔'; }
+function insNA(){ return '数据不足'; }
+function insEmpty(note){ return '<div class="empty">' + esc(note) + '</div>'; }
+function insTable(head, rows){
+  if (!rows.length) return insEmpty('这个区间还没有可展示的记录');
+  return '<table><thead><tr>' + head.map(function(h){
+    return '<th' + (h.num ? ' class="num"' : '') + '>' + h.t + '</th>';
+  }).join('') + '</tr></thead><tbody>' + rows.map(function(r){
+    return '<tr>' + r.map(function(c, i){
+      return '<td' + (head[i] && head[i].num ? ' class="num"' : '') + '>' + c + '</td>';
+    }).join('') + '</tr>';
+  }).join('') + '</tbody></table>';
+}
+function insRecordRows(list, limit){
+  var lim = limit || 40;
+  var rows = list.slice(0, lim).map(function(t){
+    var acc = accountById(t.accountId);
+    var sub = t.date.slice(5) + (acc ? ' · ' + acc.name : '') +
+      (t.auto ? ' · 自动' : '') + (t.note ? ' · ' + t.note : '');
+    return '<div class="row"><span class="name">' + insText(esc(t.category || '其他')) +
+      ' <small>' + insText(esc(sub)) + '</small></span>' +
+      '<span class="num">' + money(t.amount) + '</span></div>';
+  }).join('');
+  if (!rows) return insEmpty('这个区间还没有支出记录');
+  return rows + (list.length > lim
+    ? '<div class="note">仅显示前 ' + lim + ' 条，共 ' + insText(list.length + ' 条') + '</div>' : '');
+}
+function insMedian(list){
+  if (!list.length) return 0;
+  var a = list.map(function(t){ return t.amount; }).sort(function(x,y){ return x-y; });
+  var i = Math.floor(a.length/2);
+  return a.length % 2 ? a[i] : (a[i-1]+a[i])/2;
+}
+function insHead(title, note){
+  return '<div class="insight-detail"><div class="note">' + note + '</div>' + title + '</div>';
+}
+
+function buildInsights(){
+  var t0 = today(), ym = thisMonth(), day = +t0.slice(8,10);
+  var curFrom = ym + '-01', curTo = t0;
+  var pm = monthShift(ym, -1);
+  var pDay = Math.min(day, daysInMonth(pm));
+  var prevFrom = pm + '-01', prevTo = pm + '-' + String(pDay).padStart(2,'0');
+  var d30From = shiftDate(t0, -29);
+
+  var cur = spendIn(curFrom, curTo);
+  var prev = spendIn(prevFrom, prevTo);
+  var d30 = spendIn(d30From, t0);
+  var curTotal = spendTotal(cur), prevTotal = spendTotal(prev);
+  var curMan = spendManual(cur), curAuto = spendAuto(cur);
+  var cats = spendByCat(cur), prevCats = spendByCat(prev);
+  var none = cur.length === 0;
+  var hasPrev = prev.length > 0 && prevTotal > 0;
+  var out = [];
+  var scope = '本月 ' + curFrom.slice(5) + ' ~ ' + curTo.slice(5) +
+    '；对比上月同期 ' + prevFrom.slice(5) + ' ~ ' + prevTo.slice(5) +
+    '。金额含规则自动支出，笔数与笔均仅统计手动记录；未来日期不计入。';
+
+  /* 合并两期分类，供环比与增幅使用 */
+  var catMap = {};
+  cats.forEach(function(c){ catMap[c.cat] = {cur:c.amount, prev:0}; });
+  prevCats.forEach(function(c){
+    if (!catMap[c.cat]) catMap[c.cat] = {cur:0, prev:c.amount};
+    else catMap[c.cat].prev = c.amount;
+  });
+  var cmp = Object.keys(catMap).map(function(k){
+    return {k:k, cur:catMap[k].cur, prev:catMap[k].prev, d:catMap[k].cur - catMap[k].prev};
+  }).sort(function(a,b){ return b.d - a.d; });
+
+  /* 1 · 最大花销分类 */
+  var top = cats[0];
+  var topList = top ? cur.filter(function(x){ return (x.category||'其他') === top.cat; }) : [];
+  out.push({
+    lab:'最大花销分类',
+    val: none ? insNA() : insText(esc(top.cat)),
+    foot: none ? '本月至今 · 含自动支出'
+      : insPct(curTotal > 0 ? top.amount/curTotal*100 : 0) + ' · ' + money(top.amount),
+    title:'最大花销分类' + (none ? '' : ' · ' + (privacyOn ? PRIVACY_MASK : esc(top.cat))),
+    body: none ? insEmpty('本月至今还没有支出记录') :
+      insHead('', scope) +
+      insTable([{t:'分类'},{t:'金额',num:true},{t:'占比',num:true},{t:'笔数',num:true}],
+        [[insText(esc(top.cat)), money(top.amount),
+          insPct(curTotal>0 ? top.amount/curTotal*100 : 0), insCount(topList.length)]]) +
+      insRecordRows(topList),
+    empty: none
+  });
+
+  /* 2 · 前三分类集中度 */
+  var top3 = cats.slice(0,3);
+  var top3sum = top3.reduce(function(s,c){ return s + c.amount; }, 0);
+  out.push({
+    lab:'前三分类集中度',
+    val: none ? insNA() : insPct(curTotal > 0 ? top3sum/curTotal*100 : 0),
+    foot: none ? '本月至今' : insText(top3.map(function(c){ return c.cat; }).join(' / ')),
+    title:'前三分类集中度',
+    body: none ? insEmpty('本月至今还没有支出记录') :
+      insHead('', '占比越高说明支出越集中在少数几类；分母为本月至今总支出（含自动）。') +
+      insTable([{t:'分类'},{t:'金额',num:true},{t:'占比',num:true},{t:'笔数',num:true}],
+        top3.map(function(c){
+          return [insText(esc(c.cat)), money(c.amount),
+            insPct(curTotal>0 ? c.amount/curTotal*100 : 0),
+            insCount(cur.filter(function(t){ return (t.category||'其他') === c.cat; }).length)];
+        })),
+    empty: none
+  });
+
+  /* 3 · 本月至今 vs 上月同期 */
+  var diff = curTotal - prevTotal;
+  var rate = hasPrev ? diff/prevTotal*100 : 0;
+  out.push({
+    lab:'本月至今 vs 上月同期',
+    val: !hasPrev || none ? insNA() : insRate(rate),
+    foot: '本期 ' + money(curTotal) + ' · 上期 ' + money(prevTotal),
+    title:'本月至今 vs 上月同期',
+    body: !hasPrev ? insEmpty('上月同期没有支出记录，暂时无法对比') :
+      insHead('', '按相同日序对齐（本月 1 号~今天 vs 上月 1 号~' + pDay + ' 号），避免当月未过完造成的低估。') +
+      insTable([{t:'分类'},{t:'本期',num:true},{t:'上期',num:true},{t:'差额',num:true}],
+        cmp.map(function(c){
+          return [insText(esc(c.k)), money(c.cur), money(c.prev),
+            (c.d >= 0 ? '+' : '−') + money(Math.abs(c.d))];
+        }).concat([[ '合计', money(curTotal), money(prevTotal),
+          (diff >= 0 ? '+' : '−') + money(Math.abs(diff)) ]])),
+    empty: !hasPrev
+  });
+
+  /* 4 · 自动支出占比 */
+  var autoSum = spendTotal(curAuto);
+  var fv = db.fixed.length ? db.fixed[db.fixed.length-1] : null;
+  var cfg = fv ? '当前规则：每日 ' + money(fv.amount) + ' · ' + insText(esc(fv.category)) +
+      ' · ' + (fv.enabled ? '启用' : '已暂停') + ' · 起始 ' + insText(fv.effectiveFrom)
+    : '未设置每日固定支出';
+  out.push({
+    lab:'自动支出占比',
+    val: none ? insNA() : insPct(curTotal > 0 ? autoSum/curTotal*100 : 0),
+    foot: none ? '本月至今' : '自动 ' + money(autoSum) + ' / 共 ' + money(curTotal),
+    title:'自动支出占比',
+    body: none ? insEmpty('本月至今还没有支出记录') :
+      insHead('', '自动支出由「每日固定支出」规则按日历派生，不写入流水表；它会主导笔数与频次，所以笔均类指标只看手动记录。') +
+      insTable([{t:'来源'},{t:'金额',num:true},{t:'笔数',num:true},{t:'占比',num:true}], [
+        ['规则自动', money(autoSum), insCount(curAuto.length), insPct(curTotal>0 ? autoSum/curTotal*100 : 0)],
+        ['手动记录', money(spendTotal(curMan)), insCount(curMan.length),
+          insPct(curTotal>0 ? spendTotal(curMan)/curTotal*100 : 0)],
+        ['合计', money(curTotal), insCount(cur.length), insPct(100)]
+      ]) + '<div class="note">' + cfg + '</div>',
+    empty: none
+  });
+
+  /* 5 · 笔均支出（仅手动） */
+  var avg = curMan.length ? spendTotal(curMan)/curMan.length : 0;
+  var med = insMedian(curMan);
+  var buckets = [[0,50,'50 元以下'],[50,100,'50~100 元'],[100,300,'100~300 元'],[300,Infinity,'300 元以上']];
+  out.push({
+    lab:'笔均支出 · 仅手动',
+    val: !curMan.length ? insNA() : money(avg),
+    foot: insCount(curMan.length) + ' · 不含规则生成',
+    title:'笔均支出 · 仅手动',
+    body: !curMan.length ? insEmpty('本月至今还没有手动支出记录') :
+      insHead('', '中位数比均值更抗偶发大额；两者差距大说明有少数特别大的一笔。') +
+      insTable([{t:'统计量'},{t:'数值',num:true}], [
+        ['手动支出总额', money(spendTotal(curMan))],
+        ['笔均', money(avg)],
+        ['中位数', money(med)],
+        ['最大单笔', money(Math.max.apply(null, curMan.map(function(t){ return t.amount; })))]
+      ]) + insTable([{t:'金额区间'},{t:'笔数',num:true}],
+        buckets.map(function(b){
+          return [insText(b[2]), insCount(curMan.filter(function(t){
+            return t.amount >= b[0] && t.amount < b[1]; }).length)];
+        })),
+    empty: !curMan.length
+  });
+
+  /* 6 · 近 30 天支出（滚动） */
+  var byDay = {};
+  d30.forEach(function(t){ byDay[t.date] = (byDay[t.date] || 0) + t.amount; });
+  var dayKeys = Object.keys(byDay).sort().reverse();
+  out.push({
+    lab:'近 30 天支出',
+    val: d30.length ? moneyShort(spendTotal(d30)) : insNA(),
+    foot: d30From.slice(5) + ' ~ ' + t0.slice(5) + ' · ' + insCount(d30.length),
+    title:'近 30 天支出 · 滚动窗口',
+    body: insHead('', '不含自然月边界，避免月初/月末对比失真；含规则自动支出。') +
+      insTable([{t:'日期'},{t:'笔数',num:true},{t:'当日合计',num:true}],
+        dayKeys.map(function(d){
+          return [insText(d.slice(5)),
+            insCount(d30.filter(function(t){ return t.date === d; }).length),
+            money(byDay[d])];
+        })),
+    empty: !d30.length
+  });
+
+  /* 7 · 手动支出笔数 */
+  var manByCat = {};
+  curMan.forEach(function(t){
+    var k = t.category || '其他';
+    manByCat[k] = (manByCat[k] || 0) + 1;
+  });
+  out.push({
+    lab:'手动支出笔数',
+    val: curMan.length ? insCount(curMan.length) : insNA(),
+    foot: '本月至今 · 不含规则生成',
+    title:'手动支出笔数',
+    body: insHead('', '只数手动记录；规则自动支出按日历每天一笔，计入笔数会让它失去意义。') +
+      insTable([{t:'分类'},{t:'笔数',num:true},{t:'金额',num:true}],
+        Object.keys(manByCat).sort(function(a,b){ return manByCat[b]-manByCat[a]; }).map(function(k){
+          return [insText(esc(k)), insCount(manByCat[k]),
+            money(spendTotal(curMan.filter(function(t){ return (t.category||'其他') === k; })))];
+        })),
+    empty: !curMan.length
+  });
+
+  /* 8 · 最大单笔支出 */
+  var sorted = cur.slice().sort(function(a,b){ return b.amount - a.amount; });
+  var mx = sorted[0];
+  out.push({
+    lab:'最大单笔支出',
+    val: !mx ? insNA() : money(mx.amount),
+    foot: !mx ? '本月至今' : insText(esc(mx.category || '其他') + ' · ' + mx.date.slice(5)),
+    title:'最大单笔支出',
+    body: !mx ? insEmpty('本月至今还没有支出记录') :
+      insHead('', '偶发大额不等于异常；这里只按金额排序，不做统计离群判定。') +
+      insTable([{t:'项目'},{t:'数值',num:true}], [
+        ['日期', insText(mx.date)],
+        ['分类', insText(esc(mx.category || '其他'))],
+        ['账户', insText(esc((accountById(mx.accountId) || {}).name || '—'))],
+        ['备注', insText(esc(mx.note || '—'))],
+        ['相对笔均', avg > 0 ? insText((Math.round(mx.amount/avg*10)/10).toFixed(1) + ' 倍') : insNA()]
+      ]) + insTable([{t:'日期'},{t:'分类'},{t:'金额',num:true}],
+        sorted.slice(0,5).map(function(t){
+          return [insText(t.date.slice(5)), insText(esc(t.category||'其他')), money(t.amount)];
+        })),
+    empty: !mx
+  });
+
+  /* 9 · 涨得最快的分类（环比） */
+  var fast = hasPrev ? cmp.filter(function(c){ return c.d > 0; })[0] : null;
+  out.push({
+    lab:'涨得最快的分类',
+    val: !fast ? insNA() : insText(esc(fast.k)),
+    foot: !fast ? '需上月同期数据'
+      : '+' + money(fast.d) + (fast.prev > 0 ? ' · ' + insRate(fast.d/fast.prev*100) : ''),
+    title:'涨得最快的分类 · 环比',
+    body: !hasPrev ? insEmpty('上月同期没有支出记录，暂时无法对比') :
+      insHead('', '按金额差额排序（不是百分比），避免小额基数放大成失真的高增幅；上期金额很小的分类会标注「基数小」。') +
+      insTable([{t:'分类'},{t:'本期',num:true},{t:'上期',num:true},{t:'差额',num:true},{t:'增幅',num:true}],
+        cmp.map(function(c){
+          var r = c.prev > 0 ? c.d/c.prev*100 : null;
+          return [insText(esc(c.k)) + (c.prev > 0 && c.prev < 50 ? ' <small>基数小</small>' : ''),
+            money(c.cur), money(c.prev), (c.d>=0?'+':'−') + money(Math.abs(c.d)),
+            r === null ? '—' : insRate(r)];
+        })),
+    empty: !hasPrev
+  });
+
+  /* 10 · 工作日 / 周末日均（仅手动） */
+  var wd = 0, we = 0, p = curFrom;
+  while (p <= curTo){
+    if (isWeekend(p)) we++; else wd++;
+    p = shiftDate(p, 1);
+  }
+  var manWE = curMan.filter(function(t){ return isWeekend(t.date); });
+  var manWD = curMan.filter(function(t){ return !isWeekend(t.date); });
+  var avgWE = we > 0 ? spendTotal(manWE)/we : 0;
+  var avgWD = wd > 0 ? spendTotal(manWD)/wd : 0;
+  var mult = avgWD > 0 ? avgWE/avgWD : null;
+  var weekNames = ['周日','周一','周二','周三','周四','周五','周六'];
+  var wdist = [];
+  for (var wi = 0; wi < 7; wi++){
+    var hit = curMan.filter(function(t){
+      return new Date(t.date + 'T00:00:00').getDay() === wi;
+    });
+    wdist.push([insText(weekNames[wi]), insCount(hit.length), money(spendTotal(hit))]);
+  }
+  out.push({
+    lab:'周末 / 工作日日均',
+    val: (!curMan.length || mult === null) ? insNA()
+      : insText((Math.round(mult*10)/10).toFixed(1) + ' 倍'),
+    foot: '周末 ' + money(avgWE) + ' / 工作日 ' + money(avgWD),
+    title:'周末 / 工作日日均 · 仅手动',
+    body: (!curMan.length || wd === 0 || we === 0) ? insEmpty('本月至今的工作日或周末还没有完整样本') :
+      insHead('', '日均按本月至今实际的工作日/周末天数计算；只统计手动记录，避免规则自动支出按日历生成造成系统性偏差。') +
+      insTable([{t:'类型'},{t:'天数',num:true},{t:'笔数',num:true},{t:'总额',num:true},{t:'日均',num:true}], [
+        ['工作日', insText(wd + ' 天'), insCount(manWD.length), money(spendTotal(manWD)), money(avgWD)],
+        ['周末', insText(we + ' 天'), insCount(manWE.length), money(spendTotal(manWE)), money(avgWE)]
+      ]) + insTable([{t:'星期'},{t:'笔数',num:true},{t:'金额',num:true}], wdist),
+    empty: !curMan.length
+  });
+
+  return out;
+}
+
+var INSIGHT_CACHE = [];
+function renderInsights(){
+  var box = document.getElementById('insight-grid');
+  if (!box) return;
+  var items = buildInsights();
+  INSIGHT_CACHE = items;
+  box.innerHTML = items.map(function(it, i){
+    return '<button type="button" class="insight-item' + (it.empty ? ' empty-val' : '') +
+      '" onclick="openInsight(' + i + ')">' +
+      '<span class="lab">' + it.lab + '</span>' +
+      '<span class="val">' + it.val + '</span>' +
+      '<span class="foot">' + it.foot + '</span></button>';
+  }).join('');
+  var scope = document.getElementById('insight-scope');
+  if (scope) scope.textContent = '本月至今 · 含自动支出 · 截至今天';
+}
+function openInsight(i){
+  var it = INSIGHT_CACHE[i];
+  if (!it) return;
+  openModal(it.lab, it.body, function(){ return true; }, '关闭', true);
+}
+
+function renderOverview(){
+  renderDca();
+  var bal = currentBalances();
+  var n = netOf(bal);
+  var m = monthStats(thisMonth());
+  var series = buildSeries();
+
+  var prev = series.length >= 2 ? series[series.length-2].net : n.net;
+  var delta = n.net - prev;
+  var deltaText = series.length >= 2
+    ? (privacyOn ? '较上次记录 ' + PRIVACY_MASK
+                 : '较上次记录 ' + (delta >= 0 ? '+' : '−') + num(Math.abs(delta)))
+    : '资产 − 负债';
+
+  var dailySum = sumRole('daily'), wealthSum = sumRole('wealth'), holdSum = sumRole('hold');
+  var dailyN = accountsByRole('daily').length,
+      wealthN = accountsByRole('wealth').length, holdN = accountsByRole('hold').length;
+
+  document.getElementById('ov-metrics').innerHTML =
+    metricCard('净资产', moneyShort(n.net), deltaText) +
+    metricCard('日常可用', moneyShort(dailySum), dailyN + ' 个 · 两类独立核算') +
+    metricCard('银行理财', moneyShort(wealthSum), wealthN + ' 个 · 挂卡不计入可用余额') +
+    metricCard('长期持有', moneyShort(holdSum), holdN + ' 个 · 不参与日常消费') +
+    metricCard('本月结余', moneyShort(m.balance), '收入 ' + moneyShort(m.income) + ' · 支出 ' + moneyShort(m.expense));
+
+  var help = document.getElementById('ov-help');
+  if (!db.accounts.length){
+    help.style.display = '';
+    help.textContent = '还没有账户。先「添加账户」，填一次当前余额作为建账起点，之后所有变动都通过记账自动累计，不用再手动更新。';
+  } else if (!accountsByRole('daily').length){
+    help.style.display = '';
+    help.textContent = '还没有「日常可用」账户。建议分别添加「活期」和「银行卡」，各自填当前余额——两者分开核算，记账会默认从这里扣钱。银行理财请单独选「银行理财（类纯债）」，不会混入可用余额。';
+  } else {
+    help.style.display = 'none';
+  }
+
+  /* 资产构成 */
+  var byType = {};
+  db.accounts.forEach(function(a){
+    if (a.type === 'liability') return;
+    var v = bal[a.id] || 0;
+    if (v > 0) byType[a.type] = (byType[a.type] || 0) + v;
+  });
+  var keys = Object.keys(byType);
+  if (keys.length){
+    draw('c-ov-comp', {
+      type: 'doughnut',
+      data: {
+        labels: keys.map(function(k){ return TYPE_META[k].label; }),
+        datasets: [{
+          data: keys.map(function(k){ return Math.round(byType[k]*100)/100; }),
+          backgroundColor: keys.map(function(k){ return TYPE_META[k].color; }),
+          borderWidth: 0
+        }]
+      },
+      options: {responsive:true, maintainAspectRatio:false, cutout:'62%',
+        plugins:{legend:{position:'right', labels:{boxWidth:10, boxHeight:10, font:{size:11},
+          color:'rgba(60,60,67,.7)', padding:10}},
+          tooltip:{callbacks:{label:function(c){ return c.label + '：' + money(c.parsed); }}}}}
+    });
+  } else {
+    draw('c-ov-comp', {type:'doughnut', data:{labels:['暂无数据'], datasets:[{data:[1], backgroundColor:['#e5e7eb'], borderWidth:0}]},
+      options:{responsive:true, maintainAspectRatio:false, cutout:'62%', plugins:{legend:{display:false}, tooltip:{enabled:false}}}});
+  }
+
+  /* 净资产趋势 */
+  var pts = series.slice(-24);
+  if (pts.length >= 2){
+    draw('c-ov-net', {
+      type: 'line',
+      data: {
+        labels: pts.map(function(p){ return p.date.slice(5); }),
+        datasets: [{
+          label: '净资产', data: pts.map(function(p){ return p.net; }),
+          borderColor: '#0071e3', backgroundColor: 'rgba(0,113,227,.08)',
+          fill: true, tension: .3, pointRadius: 2, pointHoverRadius: 4, borderWidth: 2
+        }]
+      },
+      options: baseOpts({plugins:{legend:{display:false}}})
+    });
+  } else {
+    draw('c-ov-net', {type:'line', data:{labels:[], datasets:[]},
+      options: Object.assign(baseOpts(), {scales:{x:{display:false}, y:{display:false}},
+        plugins:{legend:{display:false}, tooltip:{enabled:false},
+        title:{display:true, text:'记账满两天后这里会出现趋势线',
+          color:'rgba(60,60,67,.45)', font:{size:12, weight:'400'}}}})});
+  }
+
+  /* 账户表：按 4 类角色分组；银行理财额外显示归属账户并按归属汇总 */
+  function acctRow(a){
+    var b = bal[a.id] || 0;
+    var meta = TYPE_META[a.type];
+    var role = roleOf(a);
+    var cls = role === 'debt' ? 'tag-liab'
+            : role === 'wealth' ? 'tag-wealth'
+            : a.type === 'bank' ? 'tag-bank'
+            : role === 'hold' ? 'tag-invest' : 'tag-cash';
+    return '<tr>' +
+      '<td><strong>' + esc(a.name) + '</strong> ' +
+        '<button class="btn btn-sm" style="padding:1px 8px;font-size:11px" onclick="openEditAccountModal(\'' + a.id + '\')">编辑</button>' +
+        (a.note ? '<br><span class="muted" style="font-size:11px">' + esc(a.note) + '</span>' : '') + '</td>' +
+      '<td><span class="tag ' + cls + '">' + meta.label + '</span></td>' +
+      '<td class="num" style="font-variant-numeric:tabular-nums' + (b < -0.005 && !privacyOn ? ';color:var(--red)' : '') + '">' + money(b) + '</td>' +
+      '<td style="text-align:right;white-space:nowrap">' +
+        '<button class="btn btn-sm" onclick="openRevalueModal(\'' + a.id + '\')">更新余额</button> ' +
+        '<button class="btn btn-sm" onclick="openTransferModal(\'' + a.id + '\')">转账</button> ' +
+        '<button class="btn btn-sm btn-danger" onclick="delAccount(\'' + a.id + '\')">删除</button>' +
+      '</td></tr>';
+  }
+
+  var body = '';
+  ROLE_ORDER.forEach(function(role){
+    var list = accountsByRole(role);
+    if (!list.length) return;
+    var sum = 0;
+    list.forEach(function(a){ sum += bal[a.id] || 0; });
+    body += '<tr class="grp"><td colspan="4"><div class="grp-in"><span>' +
+      ROLE_META[role].label + (ROLE_META[role].suffix || '') +
+      '</span><em>合计 ' + money(sum) + '</em></div></td></tr>';
+    body += list.map(acctRow).join('');
+  });
+
+  document.getElementById('ov-accounts').innerHTML = db.accounts.length
+    ? '<table><thead><tr><th>账户</th><th>类型</th><th class="num">当前余额</th><th style="text-align:right">操作</th></tr></thead><tbody>' + body + '</tbody></table>'
+    : '<div class="empty">还没有账户，点击右上角「添加账户」开始</div>';
+}
+
+function metricCard(lab, val, foot, cls){
+  return '<div class="metric"><div class="lab">' + lab + '</div>' +
+    '<div class="val' + (cls ? ' ' + cls : '') + '">' + val + '</div>' +
+    '<div class="foot">' + foot + '</div></div>';
+}
+
+/* ================= 渲染：记账 ================= */
+function fillCatSelect(){
+  var cats = txType === 'income' ? IN_CATS : EX_CATS;
+  var sel = document.getElementById('tx-cat');
+  var cur = sel.value;
+  sel.innerHTML = cats.map(function(c){ return '<option value="' + c + '">' + c + '</option>'; }).join('');
+  if (cats.indexOf(cur) >= 0) sel.value = cur;
+}
+/* 账户下拉：按角色分组显示。allow 指定本次允许出现的角色 */
+function acctOptionsHtml(allow){
+  var html = '';
+  ROLE_ORDER.forEach(function(role){
+    if (allow.indexOf(role) < 0) return;
+    var list = accountsByRole(role);
+    if (!list.length) return;
+    html += '<optgroup label="' + ROLE_META[role].label + '">';
+    list.forEach(function(a){
+      html += '<option value="' + a.id + '">' + esc(a.name) + '</option>';
+    });
+    html += '</optgroup>';
+  });
+  return html;
+}
+function fillAccountSelects(){
+  var acctEl = document.getElementById('tx-acct');
+  var toEl = document.getElementById('tx-to');
+  var isTransfer = (txType === 'transfer');
+  /* 支出/收入排除 inLedger:false 的角色；转账全部角色可用 */
+  var allow = isTransfer ? ROLE_ORDER : NON_TRANSFER_ROLES;
+  var prev = acctEl.value;
+  acctEl.innerHTML = acctOptionsHtml(allow) || '<option value="">（先添加账户）</option>';
+  toEl.innerHTML = acctOptionsHtml(ROLE_ORDER) || '<option value="">（先添加账户）</option>';
+
+  /* 默认账户：优先保留当前选择，其次沿用上次用的，最后取第一个「日常可用」账户 */
+  var keep = '';
+  if (prev && accountById(prev) && allow.indexOf(roleOf(accountById(prev))) >= 0) keep = prev;
+  else if (lastAccountId && accountById(lastAccountId) && allow.indexOf(roleOf(accountById(lastAccountId))) >= 0) keep = lastAccountId;
+  if (keep) acctEl.value = keep;
+  if (!acctEl.value){
+    var d = accountsByRole('daily')[0] || db.accounts[0];
+    if (d) acctEl.value = d.id;
+  }
+  /* 转账：转入账户不能与转出相同 */
+  if (isTransfer){
+    for (var i=0;i<toEl.options.length;i++){
+      if (toEl.options[i].value !== acctEl.value){ toEl.value = toEl.options[i].value; break; }
+    }
+  }
+  updateTxHint();
+}
+
+/* 实时预览：这笔记完，账户余额变成多少 */
+function updateTxHint(){
+  var el = document.getElementById('tx-hint');
+  if (!el) return;
+  var acc = accountById(document.getElementById('tx-acct').value);
+  if (!acc){ el.innerHTML = ''; return; }
+  var amt = +document.getElementById('tx-amount').value || 0;
+  var bal = currentBalances()[acc.id] || 0;
+  var roleTag = '<span class="role-chip">' + ROLE_META[roleOf(acc)].label + '</span>';
+
+  function delta(v){
+    var cls = (v < 0 && !privacyOn) ? ' class="warn"' : '';
+    return '<b' + cls + '>' + money(v) + '</b>';
+  }
+
+  if (txType === 'transfer'){
+    var toAcc = accountById(document.getElementById('tx-to').value);
+    if (!toAcc){ el.innerHTML = roleTag + ' 转出账户：' + esc(acc.name) + ' 当前 ' + money(bal); return; }
+    var toBal = currentBalances()[toAcc.id] || 0;
+    el.innerHTML = esc(acc.name) + ' ' + money(bal) + ' → ' + delta(bal - amt) +
+      ' · ' + esc(toAcc.name) + ' ' + money(toBal) + ' → ' + delta(toBal + amt);
+    return;
+  }
+  var after = (txType === 'income') ? bal + amt : bal - amt;
+  el.innerHTML = roleTag + esc(acc.name) + ' 当前 ' + money(bal) +
+    (amt > 0 ? ' · 记完变为 ' + delta(after) : (roleOf(acc) === 'hold' ? ' · 长期持有账户，日常开支建议走活期' : ''));
+}
+function setTxType(t){
+  txType = t;
+  Array.prototype.forEach.call(document.querySelectorAll('#tx-kind button'), function(b){
+    b.classList.toggle('on', b.dataset.type === t);
+  });
+  document.getElementById('f-cat').style.display = (t === 'transfer') ? 'none' : '';
+  document.getElementById('f-to').style.display = (t === 'transfer') ? '' : 'none';
+  document.getElementById('lbl-from').textContent = (t === 'transfer') ? '转出账户' : '账户';
+  document.getElementById('tx-submit').textContent = (t === 'transfer') ? '转账' : '添加';
+  if (t !== 'transfer') fillCatSelect();
+  fillAccountSelects();
+}
+
+function renderLedger(){
+  renderFixed();
+  var month = document.getElementById('led-month').value || thisMonth();
+  var m = monthStats(month);
+
+  document.getElementById('led-metrics').innerHTML =
+    metricCard('本月支出', moneyShort(m.expense), m.count + ' 笔记录') +
+    metricCard('本月收入', moneyShort(m.income), '工资、奖金等') +
+    metricCard('本月结余', moneyShort(m.balance), privacyOn ? '—' : (m.balance >= 0 ? '有结余' : '超支'),
+      privacyOn ? '' : (m.balance >= 0 ? 'green' : 'red')) +
+    metricCard('日均支出', moneyShort(m.expense / 30), '按 30 天估算');
+
+  /* 支出构成 */
+  var cats = Object.keys(m.byCat).sort(function(x,y){ return m.byCat[y] - m.byCat[x]; });
+  if (cats.length){
+    draw('c-led-cat', {
+      type: 'doughnut',
+      data: {
+        labels: cats,
+        datasets: [{
+          data: cats.map(function(c){ return Math.round(m.byCat[c]*100)/100; }),
+          backgroundColor: cats.map(function(c){ return CAT_COLORS[EX_CATS.indexOf(c)] || '#8e8e93'; }),
+          borderWidth: 0
+        }]
+      },
+      options: {responsive:true, maintainAspectRatio:false, cutout:'62%',
+        plugins:{legend:{position:'right', labels:{boxWidth:10, boxHeight:10, font:{size:11},
+          color:'rgba(60,60,67,.7)', padding:10}},
+          tooltip:{callbacks:{label:function(c){ return c.label + '：' + money(c.parsed); }}}}}
+    });
+  } else {
+    draw('c-led-cat', {type:'doughnut', data:{labels:['暂无支出'], datasets:[{data:[1], backgroundColor:['#e5e7eb'], borderWidth:0}]},
+      options:{responsive:true, maintainAspectRatio:false, cutout:'62%', plugins:{legend:{display:false}, tooltip:{enabled:false}}}});
+  }
+
+  /* 近 6 个月收支 */
+  var months = lastMonths(6);
+  var incs = months.map(function(mm){ return monthStats(mm).income; });
+  var exps = months.map(function(mm){ return monthStats(mm).expense; });
+  draw('c-led-month', {
+    type: 'bar',
+    data: {
+      labels: months.map(function(mm){ return mm.slice(5) + '月'; }),
+      datasets: [
+        {label:'支出', data: exps, backgroundColor:'#ff3b30', maxBarThickness:18, borderRadius:4},
+        {label:'收入', data: incs, backgroundColor:'#34c759', maxBarThickness:18, borderRadius:4}
+      ]
+    },
+    options: baseOpts({plugins:{legend:{display:true, position:'top', align:'end',
+      labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:'rgba(60,60,67,.7)'}}}})
+  });
+
+  /* 明细 */
+  document.getElementById('led-month-label').textContent = month;
+  /* 自动固定支出显示在明细里，标「自动」且不可单条删除（由配置派生） */
+  var list = db.transactions.concat(autoTxOf(AUTO_KIND.FIXED))
+    .filter(function(t){ return monthKey(t.date) === month; })
+    .sort(function(x,y){ return x.date < y.date ? 1 : (x.date > y.date ? -1 : 0); });
+
+  document.getElementById('led-list').innerHTML = list.length ? list.map(function(t){
+    var sign, cls, catLabel;
+    if (t.type === 'expense'){ sign = '−'; cls = 'neg'; catLabel = t.category; }
+    else if (t.type === 'income'){ sign = '+'; cls = 'pos'; catLabel = t.category; }
+    else if (t.type === 'transfer'){
+      sign = ''; cls = 'muted';
+      var from = accountById(t.accountId), to = accountById(t.toAccountId);
+      catLabel = '转账 ' + (from ? from.name : '?') + ' → ' + (to ? to.name : '?');
+    } else {
+      sign = ''; cls = 'muted';
+      catLabel = '余额调整';
+    }
+    var acc = accountById(t.accountId);
+    var sub = esc(catLabel + (acc && t.type !== 'transfer' ? ' · ' + acc.name : '') +
+      (t.note ? ' · ' + t.note : ''));
+    var badge = t.auto ? '<span class="tag" style="background:rgba(0,113,227,.1);color:#0060c8">自动</span> ' : '';
+    return '<div class="list-item">' +
+      '<span class="muted" style="width:46px;flex:none">' + t.date.slice(5) + '</span>' +
+      '<span class="grow"><span>' + badge + sub + '</span></span>' +
+      '<span class="amt ' + (t.type === 'expense' ? 'neg' : (t.type === 'income' ? 'pos' : 'muted')) + '">' +
+        (t.type === 'transfer' ? money(t.amount) : sign + num(t.amount)) + '</span>' +
+      (t.auto
+        ? '<span class="muted" style="font-size:11px;white-space:nowrap">规则生成</span>'
+        : '<button class="btn btn-sm" onclick="delTx(\'' + t.id + '\')">删</button>') +
+      '</div>';
+  }).join('') : '<div class="empty">这个月还没有记录</div>';
+}
+
+/* ================= 渲染：分析 ================= */
+function renderAnalysis(){
+  var period = +(document.getElementById('ana-period').value || 12);
+  var series = buildSeries();
+  if (period > 0){
+    var from = lastMonths(period)[0] + '-01';
+    series = series.filter(function(p){ return p.date >= from; });
+  }
+  if (series.length >= 2){
+    draw('c-ana-net', {
+      type: 'line',
+      data: {
+        labels: series.map(function(p){ return p.date.slice(5); }),
+        datasets: [{
+          label:'净资产', data: series.map(function(p){ return p.net; }),
+          borderColor:'#0071e3', backgroundColor:'rgba(0,113,227,.08)',
+          fill:true, tension:.3, pointRadius:2, pointHoverRadius:4, borderWidth:2
+        }]
+      },
+      options: baseOpts({plugins:{legend:{display:false}}})
+    });
+  } else {
+    draw('c-ana-net', {type:'line', data:{labels:[], datasets:[]},
+      options: Object.assign(baseOpts(), {scales:{x:{display:false}, y:{display:false}},
+        plugins:{legend:{display:false}, tooltip:{enabled:false},
+        title:{display:true, text:'所选区间内还没有足够的数据点', color:'rgba(60,60,67,.45)', font:{size:12, weight:'400'}}}})});
+  }
+
+  var inv = db.accounts.filter(function(a){ return kindOf(a) === 'invest'; });
+  var balNow = currentBalances();
+  var perf = inv.map(function(a){ return accountPerf(a, balNow[a.id] || 0); });
+
+  if (perf.length){
+    draw('c-ana-rate', {
+      type: 'bar',
+      data: {
+        labels: perf.map(function(p){ return p.name; }),
+        datasets: [{
+          label:'盈亏金额', data: perf.map(function(p){ return Math.round(p.gain*100)/100; }),
+          backgroundColor: perf.map(function(p){ return p.gain >= 0 ? '#ff3b30' : '#34c759'; }),
+          borderRadius: 4, maxBarThickness: 40
+        }]
+      },
+      options: baseOpts({indexAxis:'y'})
+    });
+  } else {
+    draw('c-ana-rate', {type:'bar', data:{labels:[], datasets:[]},
+      options: Object.assign(baseOpts({indexAxis:'y'}), {scales:{x:{display:false}, y:{display:false}},
+        plugins:{legend:{display:false}, tooltip:{enabled:false},
+        title:{display:true, text:'还没有股票 / 基金类账户', color:'rgba(60,60,67,.45)', font:{size:12, weight:'400'}}}})});
+  }
+
+  var rows = perf.map(function(p){
+    var a = accountById(p.id);
+    var rate = p.rate * 100;
+    var rateCls = privacyOn ? '' : (Math.abs(p.gain) < 0.005 ? 'muted' : (p.gain > 0 ? 'pos' : 'neg'));
+    var rateText = privacyOn ? PRIVACY_MASK
+      : ((Math.abs(p.gain) < 0.005) ? '—' : (rate >= 0 ? '+' : '') + rate.toFixed(2) + '%');
+    return '<tr>' +
+      '<td><strong>' + esc(a.name) + '</strong><br><span class="muted" style="font-size:11px">' +
+        (p.hasMarket ? '已记录市值变动' : '尚未更新过市值') + '</span></td>' +
+      '<td class="num">' + num(p.start) + '</td>' +
+      '<td class="num">' + num(p.invested) + '</td>' +
+      '<td class="num ' + (privacyOn ? '' : (p.gain >= 0 ? 'pos' : 'neg')) + '">' +
+        (privacyOn ? '' : (p.gain >= 0 ? '+' : '')) + num(p.gain) + '</td>' +
+      '<td class="num">' + num(p.end) + '</td>' +
+      '<td class="num ' + rateCls + '">' + rateText + '</td>' +
+      '</tr>';
+  }).join('');
+  document.getElementById('ana-table').innerHTML = perf.length
+    ? '<table><thead><tr><th>账户</th><th class="num">建账余额</th><th class="num">净投入</th><th class="num">盈亏</th><th class="num">当前余额</th><th class="num">收益率</th></tr></thead><tbody>' + rows + '</tbody></table>'
+    : '<div class="empty">还没有股票 / 基金类账户。这类账户的盈亏由「更新余额」时的市值差额产生。</div>';
+
+  var months = lastMonths(6);
+  var incs = months.map(function(mm){ return monthStats(mm).income; });
+  var exps = months.map(function(mm){ return monthStats(mm).expense; });
+  var bal = months.map(function(mm){ return monthStats(mm).balance; });
+  draw('c-ana-exp', {
+    type: 'bar',
+    data: {
+      labels: months.map(function(mm){ return mm.slice(5) + '月'; }),
+      datasets: [
+        {label:'收入', data: incs, backgroundColor:'#34c759', maxBarThickness:16, borderRadius:4},
+        {label:'支出', data: exps, backgroundColor:'#ff3b30', maxBarThickness:16, borderRadius:4},
+        {label:'结余', type:'line', data: bal, borderColor:'#0071e3', tension:.3,
+          pointRadius:2, borderWidth:2, fill:false}
+      ]
+    },
+    options: baseOpts({plugins:{legend:{display:true, position:'top', align:'end',
+      labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:'rgba(60,60,67,.7)'}}}})
+  });
+}
+
+/* ================= 渲染：数据 ================= */
+function renderData(){
+  var bytes = 0;
+  try { bytes = JSON.stringify(db).length; } catch(e){}
+  document.getElementById('data-stats').textContent =
+    '账户 ' + db.accounts.length + ' 个 · 流水 ' + db.transactions.length + ' 条 · 自动 ' +
+    db.autoTx.length + ' 笔 · 约 ' + (bytes/1024).toFixed(1) + ' KB';
+  document.getElementById('data-desc').textContent =
+    '数据保存在本机 SQLite 文件里（data/finance.db），不上传任何服务器。余额由「建账余额 + 累计流水 + 每日定投 + 每日固定支出」自动推导；定投与固定支出按日历派生、不写入流水表。活期、银行卡、银行理财（类纯债）分别独立核算。删改任何一笔真实流水后余额和曲线都会立即重算。';
+}
+
+/* ================= 总渲染 ================= */
+function renderAll(){
+  fillAccountSelects();
+  renderInsights();
+  tabById(activeTab).render();
+  renderData();
+}
+function renderCurrent(){
+  tabById(activeTab).render();
+}
+
+/* ================= 交互：记账 ================= */
+async function submitTx(ev){
+  ev.preventDefault();
+  var amount = +document.getElementById('tx-amount').value;
+  if (!(amount > 0)){ alert('请填写有效金额'); return; }
+  var accId = document.getElementById('tx-acct').value;
+  if (!accId){ alert('请先添加账户'); return; }
+  var payload = {
+    date: document.getElementById('tx-date').value,
+    type: txType,
+    account_id: accId,
+    amount: amount,
+    note: document.getElementById('tx-note').value.trim()
+  };
+  if (txType === 'transfer'){
+    payload.to_account_id = document.getElementById('tx-to').value;
+  } else {
+    payload.category = document.getElementById('tx-cat').value;
+  }
+  var btn = document.getElementById('tx-submit');
+  btn.disabled = true;
+  try {
+    await api('/api/transactions', {method:'POST', body: payload});
+    lastAccountId = accId;
+    var d = document.getElementById('tx-date');
+    var keepMonth = d.value.slice(0,7);
+    document.getElementById('led-month').value = keepMonth;
+    document.getElementById('tx-amount').value = '';
+    document.getElementById('tx-note').value = '';
+    await reload();
+    document.getElementById('tx-amount').focus();
+  } catch(e){
+    alert(e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function delTx(id){
+  if (!confirm('删除这条记录？余额会立即重算。')) return;
+  try {
+    await api('/api/transactions/' + id, {method:'DELETE'});
+    await reload();
+  } catch(e){ alert(e.message); }
+}
+
+/* ================= 交互：账户 ================= */
+function typeOptions(selected){
+  return Object.keys(TYPE_META).map(function(k){
+    var m = TYPE_META[k];
+    return '<option value="' + k + '"' + (k === selected ? ' selected' : '') + '>' +
+      m.label + ' · ' + ROLE_META[m.role].short + '</option>';
+  }).join('');
+}
+
+/* ================= 每日定投 ================= */
+function dcaCurrent(){
+  return db.dca.length ? db.dca[db.dca.length - 1] : null;
+}
+function dcaStats(){
+  var st = {count:0, total:0, mCount:0, mTotal:0, last:''};
+  var m = thisMonth();
+  autoTxOf(AUTO_KIND.DCA).forEach(function(t){
+    st.count++; st.total += t.amount; st.last = t.date;
+    if (monthKey(t.date) === m){ st.mCount++; st.mTotal += t.amount; }
+  });
+  return st;
+}
+function renderDca(){
+  var box = document.getElementById('dca-summary');
+  if (!box) return;
+  var c = dcaCurrent(), s = dcaStats();
+  var rm = document.getElementById('dca-remove');
+  if (rm) rm.style.display = c ? '' : 'none';
+  if (!c){
+    box.innerHTML = '<div class="muted" style="margin:0">未启用。设置后每个工作日自动从活期转入基金/定投账户，活期减少、基金增加，无需手动记一笔。</div>';
+    return;
+  }
+  var from = accountById(c.fromId), to = accountById(c.toId);
+  var invalid = !from || !to;
+  var tag = !c.enabled
+    ? '<span class="tag" style="background:var(--fill);color:var(--muted)">已暂停</span>'
+    : invalid
+      ? '<span class="tag" style="background:var(--red-weak);color:var(--red)">账户失效</span>'
+      : '<span class="tag" style="background:rgba(52,199,89,.14);color:#248a3d">运行中</span>';
+  var line1 = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+      '<span style="font-size:17px;font-weight:600;font-variant-numeric:tabular-nums">' + money(c.amount) + '</span>' +
+      '<span class="muted">/ ' + (c.weekdaysOnly ? '工作日' : '每天') + '</span>' +
+      '<span class="muted">·</span><span>' + esc(from ? from.name : '账户已删除') +
+      ' → ' + esc(to ? to.name : '账户已删除') + '</span>' + tag + '</div>';
+  var start = db.dca[0] ? db.dca[0].effectiveFrom : c.effectiveFrom;
+  var line2 = '<div class="muted" style="margin-top:7px">累计 ' + s.count + ' 笔 ' + money(s.total) +
+      ' · 本月 ' + s.mCount + ' 笔 ' + money(s.mTotal) +
+      (s.last ? ' · 最近结算 ' + s.last : '') + ' · 起始 ' + start + '</div>';
+  var warn = invalid
+    ? '<div class="muted" style="margin-top:6px;color:var(--red)">配置的账户已被删除，期间不产生扣款，请点「设置」重新指定。</div>'
+    : '';
+  var note = '<div class="muted" style="margin-top:6px;font-size:11.5px;opacity:.85">' +
+      '按自然日结算，与脚本是否运行无关：未打开期间的应扣工作日会在下次打开时一次性补齐；每天至多一笔，不重复扣款。修改金额只从今天起生效。</div>';
+  box.innerHTML = line1 + line2 + warn + note;
+}
+
+function openDcaModal(){
+  var daily = accountsByRole('daily');
+  var hold = accountsByRole('hold').concat(accountsByRole('wealth'));
+  if (!daily.length || !hold.length){
+    alert('需要先各有一个「日常可用」和「长期持有」账户。\n请先在资产页添加账户：活期/银行卡作为扣款方，基金/定期作为转入方。');
+    return;
+  }
+  var c = dcaCurrent(), isFirst = !c;
+  var fid = c ? c.fromId : daily[0].id;
+  var tid = c ? c.toId : hold[0].id;
+  if (!accountById(fid)) fid = daily[0].id;
+  if (!accountById(tid)) tid = hold[0].id;
+  function opts(list, sel){
+    return list.map(function(a){
+      return '<option value="' + a.id + '"' + (a.id === sel ? ' selected' : '') + '>' + esc(a.name) + '</option>';
+    }).join('');
+  }
+  var body =
+    '<div class="field"><label>每天扣款金额 (¥)</label>' +
+      '<input type="number" id="dca-amt" step="0.01" min="0" value="' +
+        (privacyOn ? '' : (c ? c.amount : 100)) + '"' +
+        (privacyOn ? ' placeholder="请输入每日金额（当前金额已隐藏）"' : '') + '></div>' +
+    '<div class="field"><label>扣款账户 · 日常可用</label>' +
+      '<select id="dca-from">' + opts(daily, fid) + '</select></div>' +
+    '<div class="field"><label>转入账户 · 长期持有</label>' +
+      '<select id="dca-to">' + opts(hold, tid) + '</select></div>' +
+    '<div class="field"><label>扣款日历</label><select id="dca-cal">' +
+      '<option value="weekday"' + (!c || c.weekdaysOnly ? ' selected' : '') + '>仅工作日（周一至周五）</option>' +
+      '<option value="all"' + (c && !c.weekdaysOnly ? ' selected' : '') + '>每天（含周末）</option></select></div>' +
+    '<div class="field"><label>状态</label><select id="dca-on">' +
+      '<option value="on"' + (!c || c.enabled ? ' selected' : '') + '>启用</option>' +
+      '<option value="off"' + (c && !c.enabled ? ' selected' : '') + '>暂停</option></select></div>' +
+    '<div class="field"><label>起始日' + (isFirst ? '' : '（已生效，不可修改）') + '</label>' +
+      '<input type="date" id="dca-start" value="' + (isFirst ? today() : db.dca[0].effectiveFrom) + '"' +
+      (isFirst ? '' : ' disabled') + '></div>' +
+    '<span class="muted" style="font-size:11.5px;line-height:1.7">' +
+      (isFirst
+        ? '起始日之前不会补算。填过去的日期，表示你确认那些天确实扣过款，系统会一次性补齐到今天。'
+        : '本次修改从今天起生效，之前的金额保持不变；当天只按新金额结算一次，不会重复扣。') +
+      '<br>脚本没打开期间的应扣工作日，会在下次打开时按日历补齐。' +
+    '</span>';
+  openModal(isFirst ? '开启每日定投' : '修改每日定投', body, async function(){
+    var rawAmt = String(document.getElementById('dca-amt').value).trim();
+    if (rawAmt === '' && isFirst){ alert('请填写每日扣款金额'); return false; }
+    var v = rawAmt === '' ? c.amount : +rawAmt;
+    if (isNaN(v) || v < 0){ alert('请填写有效金额（0 表示不扣款）'); return false; }
+    var f = document.getElementById('dca-from').value;
+    var t = document.getElementById('dca-to').value;
+    if (f === t){ alert('扣款账户和转入账户不能相同'); return false; }
+    var payload = {
+      amount: v, fromId: f, toId: t,
+      weekdaysOnly: document.getElementById('dca-cal').value === 'weekday',
+      enabled: document.getElementById('dca-on').value === 'on'
+    };
+    if (isFirst) payload.startDate = document.getElementById('dca-start').value || today();
+    try {
+      await api('/api/dca', {method:'POST', body: payload});
+      await reload();
+      alert(isFirst ? '定投已开启，余额已按起始日结算。' : '配置已更新。');
+    } catch(e){
+      alert(e.message || '保存失败');
+      return false;
+    }
+  });
+}
+
+async function removeDca(){
+  if (!confirm('清除每日定投配置？')) return;
+  if (!confirm('再次确认：清除后，此前所有自动定投都会从余额中消失，历史余额随之变化。建议先导出备份。')) return;
+  try {
+    await api('/api/dca', {method:'DELETE'});
+    await reload();
+    alert('定投配置已清除。');
+  } catch(e){ alert('清除失败：' + e.message); }
+}
+
+/* ================= 每日固定支出 ================= */
+function fixedCurrent(){
+  return db.fixed.length ? db.fixed[db.fixed.length - 1] : null;
+}
+function fixedStats(){
+  var st = {count:0, total:0, mCount:0, mTotal:0, last:''};
+  var m = thisMonth();
+  autoTxOf(AUTO_KIND.FIXED).forEach(function(t){
+    st.count++; st.total += t.amount; st.last = t.date;
+    if (monthKey(t.date) === m){ st.mCount++; st.mTotal += t.amount; }
+  });
+  return st;
+}
+function renderFixed(){
+  var box = document.getElementById('fixed-summary');
+  if (!box) return;
+  var c = fixedCurrent(), s = fixedStats();
+  var rm = document.getElementById('fixed-remove');
+  if (rm) rm.style.display = c ? '' : 'none';
+  if (!c){
+    box.innerHTML = '<div class="muted" style="margin:0">未启用。设置后每天自动记一笔固定花销（如通勤费），从活期扣减，并计入本月支出与明细。</div>';
+    return;
+  }
+  var acc = accountById(c.accountId), invalid = !acc;
+  var tag = !c.enabled
+    ? '<span class="tag" style="background:var(--fill);color:var(--muted)">已停用</span>'
+    : invalid
+      ? '<span class="tag" style="background:var(--red-weak);color:var(--red)">账户失效</span>'
+      : '<span class="tag" style="background:rgba(52,199,89,.14);color:#248a3d">运行中</span>';
+  var line1 = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+    '<span style="font-size:17px;font-weight:600;font-variant-numeric:tabular-nums">' + money(c.amount) + '</span>' +
+    '<span class="muted">/ ' + (c.weekdaysOnly ? '工作日' : '每天') + '</span>' +
+    '<span class="muted">·</span><span>' + esc(c.category) + ' · ' +
+      esc(acc ? acc.name : '账户已删除') + '</span>' + tag + '</div>';
+  var start = db.fixed[0] ? db.fixed[0].effectiveFrom : c.effectiveFrom;
+  var line2 = '<div class="muted" style="margin-top:7px">累计 ' + s.count + ' 笔 ' + money(s.total) +
+    ' · 本月 ' + s.mCount + ' 笔 ' + money(s.mTotal) +
+    (s.last ? ' · 最近结算 ' + s.last : '') + ' · 起始 ' + start + '</div>';
+  var warn = invalid
+    ? '<div class="muted" style="margin-top:6px;color:var(--red)">扣款账户已被删除，期间不产生支出，请点「设置」重新指定。</div>'
+    : '';
+  var note = '<div class="muted" style="margin-top:6px;font-size:11.5px;opacity:.85">' +
+    '按自然日结算，与脚本是否运行无关；未打开期间的应扣日会在下次打开时一次性补齐，每天至多一笔，不重复记。修改金额或停用只从今天起生效，历史不变。</div>';
+  box.innerHTML = line1 + line2 + warn + note;
+}
+
+function openFixedModal(){
+  var daily = accountsByRole('daily');
+  if (!daily.length){
+    alert('需要先有一个「日常可用」账户（活期或银行卡）作为扣款来源。');
+    return;
+  }
+  var c = fixedCurrent(), isFirst = !c;
+  var aid = c ? c.accountId : daily[0].id;
+  if (!accountById(aid)) aid = daily[0].id;
+  var cat = c ? c.category : '交通';
+  function opts(sel){
+    return EX_CATS.map(function(k){
+      return '<option value="' + k + '"' + (k === sel ? ' selected' : '') + '>' + k + '</option>';
+    }).join('');
+  }
+  var body =
+    '<div class="field"><label>每天固定支出金额 (¥)</label>' +
+      '<input type="number" id="fx-amt" step="0.01" min="0" value="' +
+        (privacyOn ? '' : (c ? c.amount : 10)) + '"' +
+        (privacyOn ? ' placeholder="请输入每日金额（当前金额已隐藏）"' : '') + '></div>' +
+    '<div class="field"><label>分类</label><select id="fx-cat">' + opts(cat) + '</select></div>' +
+    '<div class="field"><label>扣款账户 · 日常可用</label><select id="fx-acct">' +
+      daily.map(function(a){
+        return '<option value="' + a.id + '"' + (a.id === aid ? ' selected' : '') + '>' + esc(a.name) + '</option>';
+      }).join('') + '</select></div>' +
+    '<div class="field"><label>扣款日历</label><select id="fx-cal">' +
+      '<option value="all"' + (!c || !c.weekdaysOnly ? ' selected' : '') + '>每天（含周末）</option>' +
+      '<option value="weekday"' + (c && c.weekdaysOnly ? ' selected' : '') + '>仅工作日（周一至周五）</option></select></div>' +
+    '<div class="field"><label>状态</label><select id="fx-on">' +
+      '<option value="on"' + (!c || c.enabled ? ' selected' : '') + '>启用</option>' +
+      '<option value="off"' + (c && !c.enabled ? ' selected' : '') + '>停用</option></select></div>' +
+    '<div class="field"><label>起始日' + (isFirst ? '' : '（已生效，不可修改）') + '</label>' +
+      '<input type="date" id="fx-start" value="' + (isFirst ? today() : db.fixed[0].effectiveFrom) + '"' +
+      (isFirst ? '' : ' disabled') + '></div>' +
+    '<span class="muted" style="font-size:11.5px;line-height:1.7">' +
+      (isFirst
+        ? '起始日之前不会补算。填过去的日期，表示你确认那些天确实花过这笔钱，系统会一次性补齐到今天。'
+        : '本次修改从今天起生效，之前的金额保持不变；当天只按新金额记一次，不会重复。') +
+      '<br>自动支出计入本月支出与分类统计、显示在明细里（标记「自动」，不可单条删除），净资产随之减少。' +
+    '</span>';
+  openModal(isFirst ? '开启每日固定支出' : '修改每日固定支出', body, async function(){
+    var raw = String(document.getElementById('fx-amt').value).trim();
+    if (raw === '' && isFirst){ alert('请填写每日支出金额'); return false; }
+    var v = raw === '' ? c.amount : +raw;
+    if (isNaN(v) || v < 0){ alert('请填写有效金额（0 表示不记录）'); return false; }
+    var payload = {
+      amount: v,
+      accountId: document.getElementById('fx-acct').value,
+      category: document.getElementById('fx-cat').value,
+      weekdaysOnly: document.getElementById('fx-cal').value === 'weekday',
+      enabled: document.getElementById('fx-on').value === 'on'
+    };
+    if (isFirst) payload.startDate = document.getElementById('fx-start').value || today();
+    try {
+      await api('/api/fixed', {method:'POST', body: payload});
+      await reload();
+      alert(isFirst ? '固定支出已开启，余额已按起始日结算。' : '配置已更新。');
+    } catch(e){
+      alert(e.message || '保存失败');
+      return false;
+    }
+  });
+}
+
+async function removeFixed(){
+  if (!confirm('清除每日固定支出配置？')) return;
+  if (!confirm('再次确认：清除后，此前所有自动支出都会从余额和统计中消失，历史随之变化。建议先导出备份。')) return;
+  try {
+    await api('/api/fixed', {method:'DELETE'});
+    await reload();
+    alert('固定支出配置已清除。');
+  } catch(e){ alert('清除失败：' + e.message); }
+}
+
+function openAccountModal(){
+  openModal('添加账户',
+    '<div class="field"><label>账户名称</label>' +
+      '<input id="ac-name" placeholder="如：招行工资卡 / 华泰证券 / 房贷"></div>' +
+    '<div class="field"><label>类型</label>' +
+      '<select id="ac-type">' + typeOptions('deposit') + '</select></div>' +
+    '<div class="field"><label>当前余额 (¥)</label>' +
+      '<input type="number" id="ac-balance" step="0.01" value="0" placeholder="0.00">' +
+      '<span class="muted" style="font-size:11.5px">填今天的真实余额，作为建账起点。负债填正数（欠多少）。日常类的账户会作为记账时的默认扣款来源。</span></div>' +
+    '<div class="field"><label>余额日期</label>' +
+      '<input type="date" id="ac-date" value="' + today() + '"></div>' +
+    '<div class="field"><label>备注 (可选)</label><input id="ac-note" maxlength="60"></div>',
+    async function(){
+      var name = document.getElementById('ac-name').value.trim();
+      if (!name){ alert('请填写账户名称'); return false; }
+      var balance = +document.getElementById('ac-balance').value || 0;
+      var typ = document.getElementById('ac-type').value;
+      await api('/api/accounts', {method:'POST', body:{
+        name: name,
+        type: typ,
+        initial_balance: balance,
+        initial_date: document.getElementById('ac-date').value,
+        note: document.getElementById('ac-note').value.trim()
+      }});
+      await reload();
+    });
+}
+
+function openEditAccountModal(aid){
+  var a = accountById(aid); if (!a) return;
+  openModal('编辑账户 · ' + a.name,
+    '<div class="field"><label>账户名称</label>' +
+      '<input id="ed-name" value="' + esc(a.name) + '"></div>' +
+    '<div class="field"><label>类型</label>' +
+      '<select id="ed-type">' + typeOptions(a.type) + '</select></div>' +
+    '<div class="field"><label>建账余额 (¥)</label>' +
+      '<input type="number" id="ed-balance" step="0.01" value="' +
+        (privacyOn ? '' : a.initial_balance) + '"' +
+        (privacyOn ? ' placeholder="留空表示不修改（当前金额已隐藏）"' : '') + '></div>' +
+    '<div class="field"><label>余额日期</label>' +
+      '<input type="date" id="ed-date" value="' + esc(a.initial_date || today()) + '"></div>' +
+    '<div class="field"><label>备注 (可选)</label>' +
+      '<input id="ed-note" maxlength="60" value="' + esc(a.note) + '"></div>' +
+    '<span class="muted" style="font-size:11.5px;line-height:1.7">' +
+      '活期与银行卡是两个独立分类，各自单独核算；银行理财（类纯债）单独汇总，不并入任何可用余额。</span>',
+    async function(){
+      var name = document.getElementById('ed-name').value.trim();
+      if (!name){ alert('请填写账户名称'); return false; }
+      var typ = document.getElementById('ed-type').value;
+      var rawBal = String(document.getElementById('ed-balance').value).trim();
+      var payload = {
+        name: name, type: typ,
+        initial_date: document.getElementById('ed-date').value,
+        note: document.getElementById('ed-note').value.trim()
+      };
+      if (rawBal !== '') payload.initial_balance = +rawBal;
+      try {
+        await api('/api/accounts/' + aid, {method:'PUT', body: payload});
+        await reload();
+        alert('账户已更新。');
+      } catch(e){
+        alert(e.message || '保存失败');
+        return false;
+      }
+    });
+}
+
+function openRevalueModal(aid){
+  var a = accountById(aid); if (!a) return;
+  var bal = currentBalances()[aid] || 0;
+  var isCash = kindOf(a) === 'cash';
+  openModal('更新余额 · ' + a.name,
+    '<div class="field"><label>系统当前余额</label>' +
+      '<div style="font-size:20px;font-weight:600;font-variant-numeric:tabular-nums">' + money(bal) + '</div></div>' +
+    '<div class="field"><label>实际余额 / 最新市值 (¥)</label>' +
+      '<input type="number" id="rv-value" step="0.01" value="' +
+        (privacyOn ? '' : bal.toFixed(2)) + '"' +
+        (privacyOn ? ' placeholder="请输入实际金额（当前金额已隐藏）"' : '') + '></div>' +
+    '<div class="field"><label>日期</label><input type="date" id="rv-date" value="' + today() + '"></div>' +
+    '<span class="muted" style="font-size:11.5px">' +
+      (isCash
+        ? '只需在余额对不上时用（比如漏记了一笔）。系统会把差额记成「余额调整」，不影响收支统计。'
+        : '股票、基金这类账户，市值不由收支决定，每月填一次最新市值即可，差额会记为盈亏。') +
+    '</span>',
+    async function(){
+      var rawRv = String(document.getElementById('rv-value').value).trim();
+      if (rawRv === ''){ alert('请填写实际余额'); return false; }
+      var v = +rawRv;
+      if (isNaN(v)){ alert('请填写有效金额'); return false; }
+      var r = await api('/api/revalue', {method:'POST', body:{
+        account_id: aid,
+        date: document.getElementById('rv-date').value,
+        value: v
+      }});
+      await reload();
+      if (!r.changed) alert('余额没有变化，无需调整。');
+    });
+}
+
+function openTransferModal(fromId){
+  if (db.accounts.length < 2){ alert('至少需要两个账户才能转账。'); return; }
+  var opts = db.accounts.filter(function(a){ return a.id !== fromId; })
+    .map(function(a){ return '<option value="' + a.id + '">' + esc(a.name) + '</option>'; }).join('');
+  var fromName = accountById(fromId) ? accountById(fromId).name : '';
+  openModal('账户间转账',
+    '<div class="field"><label>从</label><div style="font-weight:600">' + esc(fromName) + '</div></div>' +
+    '<div class="field"><label>转到</label><select id="tr-to">' + opts + '</select></div>' +
+    '<div class="field"><label>金额 (¥)</label><input type="number" id="tr-amt" step="0.01" min="0.01" required></div>' +
+    '<div class="field"><label>日期</label><input type="date" id="tr-date" value="' + today() + '"></div>' +
+    '<div class="field"><label>备注 (可选)</label><input id="tr-note" maxlength="60"></div>' +
+    '<span class="muted" style="font-size:11.5px">转账不算收入也不算支出，只改变两个账户的余额。</span>',
+    async function(){
+      var amt = +document.getElementById('tr-amt').value;
+      if (!(amt > 0)){ alert('请填写有效金额'); return false; }
+      await api('/api/transactions', {method:'POST', body:{
+        date: document.getElementById('tr-date').value,
+        type: 'transfer',
+        account_id: fromId,
+        to_account_id: document.getElementById('tr-to').value,
+        amount: amt,
+        note: document.getElementById('tr-note').value.trim()
+      }});
+      await reload();
+    });
+}
+
+async function delAccount(id){
+  var a = accountById(id); if (!a) return;
+  if (!confirm('删除账户「' + a.name + '」及其全部流水？此操作不可撤销。')) return;
+  try {
+    await api('/api/accounts/' + id, {method:'DELETE'});
+    await reload();
+  } catch(e){ alert(e.message); }
+}
+
+/* ================= 交互：备份 ================= */
+function download(name, text, type){
+  var blob = new Blob([text], {type: type || 'application/json;charset=utf-8'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 100);
+}
+
+function exportJSON(){
+  var payload = {version: 4, exported_at: new Date().toISOString(),
+    data: {accounts: db.accounts, transactions: db.transactions,
+           dca: db.dca, fixed: db.fixed}};
+  download('记账备份-' + today() + '.json', JSON.stringify(payload, null, 2));
+}
+
+function exportCSV(kind){
+  var rows = [];
+  if (kind === 'transactions'){
+    rows.push(['日期','类型','账户','转入账户','分类','金额','备注']);
+    /* 自动固定支出是真实支出，必须导出才能与余额对账；定投是账户间转账，仍不导出 */
+    db.transactions.concat(autoTxOf(AUTO_KIND.FIXED)).forEach(function(t){
+      var a = accountById(t.accountId), b = accountById(t.toAccountId);
+      rows.push([t.date,
+        {expense:'支出', income:'收入', transfer:'转账', adjust:'余额调整'}[t.type] || t.type,
+        a ? a.name : '', b ? b.name : '', t.category, t.amount,
+        t.note + (t.auto ? ' [规则自动生成]' : '')]);
+    });
+  } else {
+    var bal = currentBalances();
+    rows.push(['账户','类型','建账余额','建账日期','当前余额','备注']);
+    db.accounts.forEach(function(a){
+      rows.push([a.name, TYPE_META[a.type].label,
+                 a.initial_balance, a.initial_date, bal[a.id] || 0, a.note]);
+    });
+  }
+  var csv = rows.map(function(r){
+    return r.map(function(c){
+      var s = String(c == null ? '' : c);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(',');
+  }).join('\n');
+  download('记账-' + kind + '-' + today() + '.csv', '\ufeff' + csv, 'text/csv;charset=utf-8');
+}
+
+function importJSON(){
+  document.getElementById('import-file').click();
+}
+
+function doImportJSON(ev){
+  var file = ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = async function(){
+    try {
+      var d = JSON.parse(reader.result);
+      var data = d.data || d;
+      if (!data || !Array.isArray(data.accounts)) throw new Error('格式不符');
+      if (!confirm('导入将覆盖当前全部数据，确定继续？')) return;
+      var res = await api('/api/import', {method:'POST', body: data});
+      await reload();
+      alert('导入完成：' + res.accounts + ' 个账户、' + res.transactions + ' 条流水。');
+    } catch(e){
+      alert('导入失败：' + (e.message || '不是有效的备份文件'));
+    }
+  };
+  reader.readAsText(file);
+}
+
+async function clearAll(){
+  if (!confirm('确定清空全部数据？建议先导出备份。')) return;
+  if (!confirm('再次确认：所有账户和流水都将从数据库删除，不可恢复。')) return;
+  try {
+    await api('/api/clear', {method:'POST', body:{}});
+    await reload();
+  } catch(e){ alert('清空失败：' + e.message); }
+}
+
+async function loadDemo(){
+  if (!confirm('载入示例数据将覆盖数据库中的现有全部数据，确定？')) return;
+  var now = new Date();
+  function pad(n){ return String(n).padStart(2,'0'); }
+  function ds(offsetMonths, day){
+    var base = new Date(now.getFullYear(), now.getMonth() - offsetMonths, 1);
+    var lastDay = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate();
+    var dd = Math.min(day, lastDay);
+    if (offsetMonths === 0){
+      /* 本月按比例压缩到今天之前，避免出现未来日期的记录 */
+      dd = Math.max(1, Math.min(dd, Math.round(day / lastDay * now.getDate())));
+    }
+    return base.getFullYear() + '-' + pad(base.getMonth() + 1) + '-' + pad(dd);
+  }
+  var accounts = [
+    {id:'d1', name:'招行工资卡', type:'deposit', initial_balance:18000, initial_date:ds(6,1)},
+    {id:'d2', name:'日常备用金', type:'deposit', initial_balance:4000, initial_date:ds(6,1)},
+    {id:'d3', name:'指数基金定投', type:'fund', initial_balance:30000, initial_date:ds(6,1)},
+    {id:'d4', name:'装修贷款', type:'liability', initial_balance:45000, initial_date:ds(6,1)}
+  ];
+  var txs = [];
+  var n = 0;
+  function add(date, type, acc, cat, amt, note, to){
+    txs.push({id:'seed' + (++n), date:date, type:type, accountId:acc,
+      toAccountId:to || '', category:cat || '', amount:amt, note:note || ''});
+  }
+  for (var i = 5; i >= 0; i--){
+    add(ds(i,5), 'income', 'd1', '工资', 15000 + (i*120), '月薪');
+    add(ds(i,10), 'expense', 'd1', '居住', 2600, '房租');
+    add(ds(i,12), 'transfer', 'd1', '', 2000, '定投', 'd3');
+    add(ds(i,20), 'expense', 'd1', '购物', 300 + i*40, '日用品');
+    if (i % 2 === 0) add(ds(i,25), 'expense', 'd4', '其他', 1500, '还贷');
+    for (var k = 1; k <= 12; k++){
+      add(ds(i, Math.min(k*2, 27)), 'expense', 'd2', k % 3 === 0 ? '交通' : '餐饮', 25 + (k*7)%60, '');
+    }
+    if (i % 2 === 1) add(ds(i,18), 'expense', 'd1', '娱乐', 180, '电影');
+  }
+  add(ds(0,26), 'adjust', 'd3', '', 860, '市值变动');
+
+  try {
+    var res = await api('/api/import', {method:'POST', body:{accounts:accounts, transactions:txs}});
+    await reload();
+    document.querySelector('#nav button[data-tab="overview"]').click();
+    alert('示例数据已载入：' + res.accounts + ' 个账户、' + res.transactions + ' 条流水，覆盖近 6 个月。');
+  } catch(e){
+    alert('载入失败：' + e.message);
+  }
+}
+
+/* ================= 启动 ================= */
+document.getElementById('nav').addEventListener('click', function(e){
+  var btn = e.target.closest('button[data-tab]');
+  if (!btn) return;
+  activeTab = btn.dataset.tab;
+  Array.prototype.forEach.call(this.querySelectorAll('button'), function(b){
+    b.classList.toggle('active', b === btn);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('section.tab'), function(s){
+    s.classList.toggle('show', s.id === 'tab-' + activeTab);
+  });
+  renderCurrent();
+});
+
+document.getElementById('tx-kind').addEventListener('click', function(e){
+  var btn = e.target.closest('button[data-type]');
+  if (btn) setTxType(btn.dataset.type);
+});
+document.getElementById('tx-form').addEventListener('submit', submitTx);
+document.getElementById('tx-amount').addEventListener('input', updateTxHint);
+document.getElementById('tx-acct').addEventListener('change', updateTxHint);
+document.getElementById('tx-to').addEventListener('change', updateTxHint);
+document.getElementById('led-month').addEventListener('change', renderLedger);
+document.getElementById('ana-period').addEventListener('change', renderAnalysis);
+
+(async function boot(){
+  var errBox = document.getElementById('boot-error');
+  buildNav();
+  /* 注册表与页面 section 必须一一对应，漏加 section 时立刻在控制台提示 */
+  TABS.forEach(function(t){
+    if (!document.getElementById('tab-' + t.id)){
+      console.warn('缺少页签容器：section#tab-' + t.id);
+    }
+  });
+  updatePrivacyBtn();
+  document.getElementById('tx-date').value = today();
+  document.getElementById('led-month').value = thisMonth();
+  setTxType('expense');
+
+  if (typeof Chart !== 'undefined'){
+    Chart.defaults.font.family = '-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif';
+    Chart.defaults.color = 'rgba(60,60,67,.6)';
+    Chart.defaults.font.size = 11;
+  }
+
+  if (location.protocol === 'file:'){
+    errBox.style.display = '';
+    errBox.textContent = '请通过本地服务打开：双击 D:\\记账\\启动记账.bat，浏览器会自动打开 http://127.0.0.1:8765';
+    return;
+  }
+
+  try {
+    await reload();
+  } catch(e){
+    errBox.style.display = '';
+    errBox.textContent = '数据未能加载：' + e.message + '（本地数据加载失败，请确认浏览器未处于无痕模式，或换用 Safari）';
+    return;
+  }
+
+  /* 旧版浏览器 localStorage 数据迁移提示 */
+  try {
+    var legacy = localStorage.getItem(LS_KEY);
+    if (legacy && !db.accounts.length){
+      var old = JSON.parse(legacy);
+      if (old && old.accounts && old.accounts.length){
+        if (confirm('检测到浏览器里还有一份旧版数据（' + old.accounts.length + ' 个账户、' +
+                    (old.expenses || []).length + ' 笔开销）。\n是否迁移到新的数据库？迁移后会清除浏览器里的旧副本。')){
+          await api('/api/import', {method:'POST', body: old});
+          localStorage.removeItem(LS_KEY);
+          await reload();
+          alert('迁移完成：' + db.accounts.length + ' 个账户、' + db.transactions.length + ' 条流水。');
+        }
+      }
+    }
+  } catch(e){}
+})();
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  });
+}
+document.addEventListener('gesturestart', function (e) { e.preventDefault(); });
+</script>
+</body>
+</html>
