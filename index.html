@@ -275,6 +275,8 @@ tr.grp td{padding:var(--sp-2) 10px;background:var(--fill);border-bottom:0;}
   border-bottom:.5px solid var(--hair);font-size:var(--fs-body);
   border-radius:var(--radius-xs);transition:background-color .15s var(--ease);}
 .list-item:hover{background:rgba(0,102,204,.025);}
+.list-item.is-editable{cursor:pointer;}
+.list-item.is-editable:active{background:rgba(0,102,204,.06);}
 .list-item:last-child{border-bottom:0;}
 .list-item .grow{flex:1;min-width:0;}
 .list-item .note{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -291,6 +293,23 @@ tr.grp td{padding:var(--sp-2) 10px;background:var(--fill);border-bottom:0;}
   margin-bottom:var(--sp-3);}
 .bk-bar .bk-txt{flex:1 1 180px;}
 .bk-bar .bk-act{display:flex;gap:var(--sp-2);margin-left:auto;}
+
+/* 撤销提示：底部浮层，几秒内可反悔，比弹窗确认顺手 */
+.undo-toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));
+  z-index:70;display:flex;align-items:center;gap:var(--sp-2);
+  width:max-content;max-width:calc(100vw - 32px);
+  background:rgba(28,28,30,.94);color:#fff;
+  border-radius:var(--radius-pill);padding:9px 10px 9px 18px;
+  font-size:13px;box-shadow:0 8px 28px rgba(0,0,0,.28);
+  opacity:0;pointer-events:none;
+  transform:translateX(-50%) translateY(14px);
+  transition:opacity .22s var(--ease),transform .22s var(--ease);}
+.undo-toast.show{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(0);}
+.undo-toast .u-msg{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.undo-toast button{border:0;background:transparent;color:#6fb6ff;
+  font-family:inherit;font-size:13px;font-weight:600;padding:5px 10px;
+  border-radius:var(--radius-xs);cursor:pointer;flex:none;}
+.undo-toast button:hover{background:rgba(255,255,255,.14);}
 
 /* 移动端 */
 @media (max-width:640px){
@@ -621,6 +640,8 @@ tr.grp td{padding:var(--sp-2) 10px;background:var(--fill);border-bottom:0;}
   </div>
 </section>
 </div>
+
+<div class="undo-toast" id="undo-toast"></div>
 
 <div class="modal-mask" id="modal-mask">
   <div class="modal">
@@ -956,13 +977,16 @@ window.alert = function(msg){ showAlert(msg); };
 
 /* ================= 表单弹窗 ================= */
 var modalOK = null;
-function openModal(title, bodyHTML, onOK, okLabel, hideCancel){
+function openModal(title, bodyHTML, onOK, okLabel, hideCancel, okClass){
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-body').innerHTML = bodyHTML;
   modalOK = onOK;
-  document.getElementById('modal-ok').textContent = okLabel || '保存';
+  var okBtn = document.getElementById('modal-ok');
+  okBtn.textContent = okLabel || '保存';
+  okBtn.className = 'btn ' + (okClass || 'btn-primary');
   var cancel = document.getElementById('modal-cancel');
   if (cancel) cancel.style.display = hideCancel ? 'none' : '';
+  hideUndo();
   document.getElementById('modal-mask').classList.add('show');
 }
 function closeModal(){
@@ -1763,14 +1787,15 @@ function renderLedger(){
     var sub = esc(catLabel + (acc && t.type !== 'transfer' ? ' · ' + acc.name : '') +
       (t.note ? ' · ' + t.note : ''));
     var badge = t.auto ? '<span class="tag" style="background:rgba(0,113,227,.1);color:#0060c8">自动</span> ' : '';
-    return '<div class="list-item">' +
+    return '<div class="list-item' + (t.auto ? '' : ' is-editable') + '"' +
+      (t.auto ? '' : ' role="button" tabindex="0" onclick="openTxModal(\'' + t.id + '\')"') + '>' +
       '<span class="muted" style="width:46px;flex:none">' + t.date.slice(5) + '</span>' +
       '<span class="grow"><span>' + badge + sub + '</span></span>' +
       '<span class="amt ' + (t.type === 'expense' ? 'neg' : (t.type === 'income' ? 'pos' : 'muted')) + '">' +
         (t.type === 'transfer' ? money(t.amount) : sign + num(t.amount)) + '</span>' +
       (t.auto
         ? '<span class="muted" style="font-size:11px;white-space:nowrap">规则生成</span>'
-        : '<button class="btn btn-sm" onclick="delTx(\'' + t.id + '\')">删</button>') +
+        : '<button class="btn btn-sm" onclick="event.stopPropagation();delTx(\'' + t.id + '\')">删</button>') +
       '</div>';
   }).join('') : '<div class="empty">这个月还没有记录</div>';
 }
@@ -1928,12 +1953,131 @@ async function submitTx(ev){
   }
 }
 
+/* ================= 交互：删除与撤销 ================= */
+var undoState = null, undoTimer = null;
+
+function showUndo(msg, action){
+  var el = document.getElementById('undo-toast');
+  if (!el) return;
+  clearTimeout(undoTimer);
+  undoState = action;
+  el.innerHTML = '<span class="u-msg">' + esc(msg) + '</span>' +
+                 '<button type="button" id="undo-btn">撤销</button>';
+  el.classList.add('show');
+  var btn = document.getElementById('undo-btn');
+  if (btn) btn.onclick = async function(){
+    var fn = undoState;
+    hideUndo();
+    if (!fn) return;
+    try { await fn(); } catch(e){ alert('撤销失败：' + (e.message || '未知原因')); }
+  };
+  undoTimer = setTimeout(hideUndo, 6000);
+}
+
+function hideUndo(){
+  clearTimeout(undoTimer);
+  undoState = null;
+  var el = document.getElementById('undo-toast');
+  if (el) el.classList.remove('show');
+}
+
+function txLabel(t){
+  var name = t.type === 'expense' ? '支出' : t.type === 'income' ? '收入'
+           : t.type === 'transfer' ? '转账' : '余额调整';
+  var tail = (t.type !== 'transfer' && t.category) ? ' · ' + t.category : '';
+  return name + ' ' + num(t.amount) + tail;
+}
+
 async function delTx(id){
-  if (!confirm('删除这条记录？余额会立即重算。')) return;
+  var t = db.transactions.filter(function(x){ return x.id === id; })[0];
+  if (!t) return;
   try {
-    await api('/api/transactions/' + id, {method:'DELETE'});
+    await api('/api/transactions/' + id, {method: 'DELETE'});
     await reload();
+    /* 用原数据重建一条：流水没有外部引用，换个 id 不影响任何东西 */
+    showUndo('已删除 ' + txLabel(t), async function(){
+      await api('/api/transactions', {method:'POST', body:{
+        date: t.date, type: t.type, account_id: t.accountId,
+        to_account_id: t.toAccountId, category: t.category,
+        amount: t.amount, note: t.note
+      }});
+      await reload();
+    });
   } catch(e){ alert(e.message); }
+}
+
+/* ================= 交互：编辑流水 ================= */
+function catOptions(typ, sel){
+  var cats = typ === 'income' ? IN_CATS : EX_CATS;
+  return cats.map(function(c){
+    return '<option value="' + c + '"' + (c === sel ? ' selected' : '') + '>' + c + '</option>';
+  }).join('');
+}
+
+function acctOptions(sel){
+  return db.accounts.map(function(a){
+    return '<option value="' + a.id + '"' + (a.id === sel ? ' selected' : '') + '>' +
+      esc(a.name) + '</option>';
+  }).join('');
+}
+
+function openTxModal(id){
+  var t = db.transactions.filter(function(x){ return x.id === id; })[0];
+  if (!t) return;
+
+  /* 隐私态下预填金额等于把数字写在屏幕上，这里清空并要求重新输入
+     （与「更新余额」「定投设置」两个弹窗保持一致） */
+  var amtVal = privacyOn ? '' : t.amount;
+  var ph = privacyOn ? '重新输入金额' : '';
+  var body = '<div class="field"><label>日期</label>' +
+    '<input type="date" id="et-date" value="' + t.date + '"></div>';
+
+  if (t.type === 'transfer'){
+    body += '<div class="field"><label>金额 (¥)</label>' +
+      '<input type="number" id="et-amount" step="0.01" min="0.01" value="' + amtVal + '" placeholder="' + ph + '"></div>' +
+      '<div class="field"><label>从</label><select id="et-from">' + acctOptions(t.accountId) + '</select></div>' +
+      '<div class="field"><label>转到</label><select id="et-to">' + acctOptions(t.toAccountId) + '</select></div>';
+  } else if (t.type === 'adjust'){
+    body += '<div class="field"><label>调整额 (¥，可负)</label>' +
+      '<input type="number" id="et-amount" step="0.01" value="' + amtVal + '"></div>' +
+      '<div class="field"><label>账户</label><select id="et-from">' + acctOptions(t.accountId) + '</select></div>';
+  } else {
+    body += '<div class="field"><label>金额 (¥)</label>' +
+      '<input type="number" id="et-amount" step="0.01" min="0.01" value="' + amtVal + '" placeholder="' + ph + '"></div>' +
+      '<div class="field"><label>分类</label><select id="et-cat">' + catOptions(t.type, t.category) + '</select></div>' +
+      '<div class="field"><label>账户</label><select id="et-from">' + acctOptions(t.accountId) + '</select></div>';
+  }
+  body += '<div class="field"><label>备注 (可选)</label>' +
+    '<input id="et-note" maxlength="60" value="' + esc(t.note) + '"></div>' +
+    '<span class="muted" style="font-size:11.5px">改完余额立即重算；记录类型不可更改。</span>';
+
+  var titles = {expense: '编辑支出', income: '编辑收入',
+                transfer: '编辑转账', adjust: '编辑余额调整'};
+
+  openModal(titles[t.type] || '编辑记录', body, async function(){
+    var raw = String(document.getElementById('et-amount').value).trim();
+    if (raw === ''){ alert('请填写金额'); return false; }
+    var amt = +raw;
+    if (isNaN(amt)){ alert('请填写有效金额'); return false; }
+    var payload = {
+      date: document.getElementById('et-date').value,
+      account_id: document.getElementById('et-from').value,
+      amount: amt,
+      note: document.getElementById('et-note').value.trim()
+    };
+    if (t.type === 'transfer'){
+      payload.to_account_id = document.getElementById('et-to').value;
+    } else if (t.type === 'expense' || t.type === 'income'){
+      payload.category = document.getElementById('et-cat').value;
+    }
+    try {
+      await api('/api/transactions/' + id, {method: 'PUT', body: payload});
+      await reload();
+    } catch(e){
+      alert(e.message);
+      return false;
+    }
+  }, '保存');
 }
 
 /* ================= 交互：账户 ================= */
@@ -2316,11 +2460,41 @@ function openTransferModal(fromId){
 
 async function delAccount(id){
   var a = accountById(id); if (!a) return;
-  if (!confirm('删除账户「' + a.name + '」及其全部流水？此操作不可撤销。')) return;
-  try {
-    await api('/api/accounts/' + id, {method:'DELETE'});
-    await reload();
-  } catch(e){ alert(e.message); }
+  var txs = db.transactions.filter(function(t){
+    return t.accountId === id || t.toAccountId === id;
+  });
+
+  var body;
+  if (!txs.length){
+    body = '<div class="muted">这个账户还没有任何流水记录，删除后不影响其他账户。</div>';
+  } else {
+    var exp = 0, inc = 0, minD = '', maxD = '';
+    txs.forEach(function(t){
+      if (!minD || t.date < minD) minD = t.date;
+      if (!maxD || t.date > maxD) maxD = t.date;
+      if (t.type === 'expense') exp += t.amount;
+      else if (t.type === 'income') inc += t.amount;
+    });
+    body = '<div class="muted">删除「' + esc(a.name) + '」会一并删除：</div>' +
+      '<div style="font-size:17px;font-weight:600">' + txs.length + ' 笔流水</div>' +
+      '<div class="muted">时间范围 ' + minD + ' 至 ' + maxD + '</div>';
+    if (exp || inc){
+      body += '<div class="muted">累计支出 ' + money(exp) + '，累计收入 ' + money(inc) + '</div>';
+    }
+    body += '<div class="note">此操作不可撤销。建议先导出一份备份再删。</div>' +
+      '<button class="btn btn-sm" type="button" style="align-self:flex-start" ' +
+      'onclick="exportJSON()">先导出备份</button>';
+  }
+
+  openModal('删除账户', body, async function(){
+    try {
+      await api('/api/accounts/' + id, {method:'DELETE'});
+      await reload();
+    } catch(e){
+      alert(e.message);
+      return false;
+    }
+  }, txs.length ? '仍然删除' : '删除', false, 'btn-danger');
 }
 
 /* ================= 交互：备份 ================= */

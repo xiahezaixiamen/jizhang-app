@@ -383,6 +383,54 @@
     });
   }
 
+  /* 编辑流水：类型不可变更，其余字段与新增同一套校验 */
+  function updateTransaction(tid, d) {
+    return Promise.all([readAll('transactions'), readAll('accounts')]).then(function (r) {
+      var txs = r[0], accounts = r[1];
+      var cur = null;
+      for (var i = 0; i < txs.length; i++) if (txs[i].id === tid) { cur = txs[i]; break; }
+      if (!cur) throw new Error('记录不存在');
+
+      var typ = cur.type;
+      var date = checkDate(d.date);
+      var aid = clip(d.account_id, 40);
+      var toAid = clip(d.to_account_id, 40);
+      var note = clip(d.note, 60);
+      var category = clip(d.category, 20);
+      var amount;
+
+      if (typ === 'expense' || typ === 'income') {
+        if (!aid) throw new Error('请选择账户');
+        if (!category) category = '其他';
+        amount = checkAmount(d.amount);
+      } else if (typ === 'transfer') {
+        if (!aid || !toAid) throw new Error('请选择转出和转入账户');
+        if (aid === toAid) throw new Error('转出与转入不能是同一个账户');
+        amount = checkAmount(d.amount);
+        category = '';
+      } else {
+        if (!aid) throw new Error('请选择账户');
+        amount = checkAmount(d.amount, true);
+        category = '';
+      }
+      if (typ !== 'transfer') toAid = '';
+
+      var ids = {};
+      accounts.forEach(function (a) { ids[a.id] = 1; });
+      if (aid && !ids[aid]) throw new Error('账户不存在');
+      if (toAid && !ids[toAid]) throw new Error('账户不存在');
+
+      var row = Object.assign({}, cur, {
+        date: date, accountId: aid, toAccountId: toAid,
+        category: category, amount: amount, note: note
+      });
+      return write([{ op: 'put', store: 'transactions', value: row }]).then(function () {
+        return { id: tid, date: date, type: typ, accountId: aid,
+                 toAccountId: toAid, category: category, amount: amount, note: note };
+      });
+    });
+  }
+
   function revalue(d) {
     var aid = clip(d.account_id, 40);
     var date = checkDate(d.date || todayStr());
@@ -631,6 +679,9 @@
 
     if (method === 'PUT' && parts.length === 3 && parts[1] === 'accounts') {
       return updateAccount(parts[2], body);
+    }
+    if (method === 'PUT' && parts.length === 3 && parts[1] === 'transactions') {
+      return updateTransaction(parts[2], body);
     }
     if (method === 'DELETE' && parts.length === 3 && parts[1] === 'accounts') {
       return deleteAccount(parts[2]);
