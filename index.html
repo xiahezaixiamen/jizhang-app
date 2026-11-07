@@ -599,7 +599,7 @@ tr.grp td{padding:var(--sp-2) 10px;background:var(--fill);border-bottom:0;}
     <h3>资产分类规则</h3>
     <div class="muted" style="margin:0;line-height:1.85">
       <b style="color:var(--text)">活期 / 银行卡</b>：两个独立分类，各自单独核算余额，不再合并成一个数字；两者同属「日常可用」。<br>
-      <b style="color:var(--text)">银行理财（类纯债）</b>：单独建账、单独汇总，既不计入活期，也不计入银行卡的可用余额。<br>
+      <b style="color:var(--text)">银行理财</b>：单独建账、单独汇总，既不计入活期，也不计入银行卡的可用余额。<br>
       <b style="color:var(--text)">长期持有</b>：定期 / 股票 / 基金 / 其他资产，与银行理财分开统计。<br>
       净资产 = 日常可用 + 银行理财 + 长期持有 − 负债；资产构成图按上述类型分别着色。
     </div>
@@ -682,7 +682,7 @@ if (typeof Chart === 'undefined') {
 var TYPE_META = {
   deposit:   {label:'活期',                color:'#0071e3', kind:'cash',      role:'daily'},
   bank:      {label:'银行卡',              color:'#34c759', kind:'cash',      role:'daily'},
-  bankwealth:{label:'银行理财（类纯债）',   color:'#ffcc00', kind:'invest',    role:'wealth'},
+  bankwealth:{label:'银行理财',            color:'#ffcc00', kind:'invest',    role:'wealth', plainLabel:true},
   fixed:     {label:'定期存款',            color:'#30b0c7', kind:'cash',      role:'hold'},
   stock:     {label:'股票',                color:'#ff3b30', kind:'invest',    role:'hold'},
   fund:      {label:'基金',                color:'#ff9500', kind:'invest',    role:'hold'},
@@ -694,7 +694,7 @@ var TYPE_META = {
 var ROLE_META = {
   daily:  {label:'日常可用',           short:'日常', inLedger:true,
            desc:'活期与银行卡分开核算，日常收支默认从这里扣'},
-  wealth: {label:'银行理财（类纯债）', short:'理财', inLedger:true,
+  wealth: {label:'银行理财', short:'理财', inLedger:true,
            desc:'单独记账、单独汇总，不计入活期或银行卡的可用余额'},
   hold:   {label:'长期持有',           short:'长期', inLedger:true,
            desc:'不参与日常消费，只在转账或更新市值时变动'},
@@ -1523,7 +1523,7 @@ function renderOverview(){
     help.textContent = '还没有账户。先「添加账户」，填一次当前余额作为建账起点，之后所有变动都通过记账自动累计，不用再手动更新。';
   } else if (!accountsByRole('daily').length){
     help.style.display = '';
-    help.textContent = '还没有「日常可用」账户。建议分别添加「活期」和「银行卡」，各自填当前余额——两者分开核算，记账会默认从这里扣钱。银行理财请单独选「银行理财（类纯债）」，不会混入可用余额。';
+    help.textContent = '还没有「日常可用」账户。建议分别添加「活期」和「银行卡」，各自填当前余额——两者分开核算，记账会默认从这里扣钱。银行理财请单独选「银行理财」，不会混入可用余额。';
   } else {
     help.style.display = 'none';
   }
@@ -1905,7 +1905,7 @@ function renderData(){
     '账户 ' + db.accounts.length + ' 个 · 流水 ' + db.transactions.length + ' 条 · 自动 ' +
     db.autoTx.length + ' 笔 · 约 ' + (bytes/1024).toFixed(1) + ' KB';
   document.getElementById('data-desc').textContent =
-    '数据保存在本机 SQLite 文件里（data/finance.db），不上传任何服务器。余额由「建账余额 + 累计流水 + 每日定投 + 每日固定支出」自动推导；定投与固定支出按日历派生、不写入流水表。活期、银行卡、银行理财（类纯债）分别独立核算。删改任何一笔真实流水后余额和曲线都会立即重算。';
+    '数据保存在本机 SQLite 文件里（data/finance.db），不上传任何服务器。余额由「建账余额 + 累计流水 + 每日定投 + 每日固定支出」自动推导；定投与固定支出按日历派生、不写入流水表。活期、银行卡、银行理财分别独立核算。删改任何一笔真实流水后余额和曲线都会立即重算。';
 }
 
 /* ================= 总渲染 ================= */
@@ -2088,8 +2088,10 @@ function openTxModal(id){
 function typeOptions(selected){
   return Object.keys(TYPE_META).map(function(k){
     var m = TYPE_META[k];
+    /* 银行理财名称已自解释，不再追加角色后缀 */
+    var text = m.plainLabel ? m.label : m.label + ' · ' + ROLE_META[m.role].short;
     return '<option value="' + k + '"' + (k === selected ? ' selected' : '') + '>' +
-      m.label + ' · ' + ROLE_META[m.role].short + '</option>';
+      text + '</option>';
   }).join('');
 }
 
@@ -2380,7 +2382,7 @@ function openEditAccountModal(aid){
     '<div class="field"><label>备注 (可选)</label>' +
       '<input id="ed-note" maxlength="60" value="' + esc(a.note) + '"></div>' +
     '<span class="muted" style="font-size:11.5px;line-height:1.7">' +
-      '活期与银行卡是两个独立分类，各自单独核算；银行理财（类纯债）单独汇总，不并入任何可用余额。</span>',
+      '活期与银行卡是两个独立分类，各自单独核算；银行理财单独汇总，不并入任何可用余额。</span>',
     async function(){
       var name = document.getElementById('ed-name').value.trim();
       if (!name){ alert('请填写账户名称'); return false; }
