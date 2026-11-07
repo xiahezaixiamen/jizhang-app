@@ -122,9 +122,9 @@ canvas{max-width:100%;}
 .metric .foot{font-size:var(--fs-caption);color:var(--muted);margin-top:var(--sp-1);
   font-variant-numeric:tabular-nums;}
 
-/* 花销洞察：可点击的结论卡（数据实时聚合，点击展开明细） */
-.insight{grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:var(--sp-2);}
-.insight-item{display:block;width:100%;text-align:left;background:var(--fill);
+/* 花销洞察：首屏 4 个重点指标（手机端横滑），其余按语义折叠 */
+.insight-hero{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--sp-2);}
+.insight-item{display:block;width:100%;min-height:84px;text-align:left;background:var(--fill);
   border:0;border-radius:var(--radius-sm);padding:var(--sp-3);
   font-family:inherit;color:var(--text);cursor:pointer;
   transition:background-color .2s var(--ease),transform .2s var(--ease);}
@@ -134,14 +134,40 @@ canvas{max-width:100%;}
 .insight-item .val{display:block;font-size:18px;font-weight:600;margin-top:var(--sp-1);
   letter-spacing:-.3px;font-variant-numeric:tabular-nums;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.insight-item .foot{display:block;font-size:var(--fs-micro);color:var(--muted);
-  margin-top:var(--sp-1);line-height:1.45;font-variant-numeric:tabular-nums;}
+.insight-item .foot{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;font-size:var(--fs-micro);color:var(--muted);
+  margin-top:var(--sp-1);line-height:1.45;min-height:32px;font-variant-numeric:tabular-nums;}
 .insight-item.empty-val .val{font-size:var(--fs-body);font-weight:400;color:var(--muted);}
+.insight-item.empty-val{opacity:.62;}
+.insight-item.is-text .val{color:var(--primary);font-size:17px;}
+.insight-dots{display:none;justify-content:center;gap:5px;margin-top:var(--sp-2);}
+.insight-dots i{width:5px;height:5px;border-radius:50%;background:var(--hair);}
+.insight-dots i.on{background:var(--primary);}
+.insight-group{margin-top:var(--sp-2);border:.5px solid var(--hair);
+  border-radius:var(--radius-sm);overflow:hidden;background:var(--fill);}
+.insight-group summary{display:flex;align-items:center;gap:8px;list-style:none;
+  padding:9px var(--sp-3);font-size:var(--fs-caption);color:var(--muted);cursor:pointer;
+  user-select:none;}
+.insight-group summary::-webkit-details-marker{display:none;}
+.insight-group summary::after{content:'';width:6px;height:6px;flex:none;
+  border-right:1.5px solid var(--muted);border-bottom:1.5px solid var(--muted);
+  transform:rotate(45deg);margin-left:8px;transition:transform .2s var(--ease);}
+.insight-group[open] summary::after{transform:rotate(-135deg);}
+.insight-group[open] summary{border-bottom:.5px solid var(--hair);}
+.insight-group .insight-more{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:var(--sp-2);padding:var(--sp-2);}
 .insight-detail{font-size:var(--fs-body);line-height:1.7;width:100%;}
 .insight-detail table{margin-top:var(--sp-2);}
 .insight-detail .note{font-size:var(--fs-caption);color:var(--muted);margin-top:var(--sp-2);}
 .modal .rows > .note{font-size:var(--fs-caption);color:var(--muted);margin-top:var(--sp-2);}
-@media (max-width:640px){.insight{grid-template-columns:repeat(2,1fr);}}
+@media (max-width:640px){
+  .insight-hero{display:flex;overflow-x:auto;gap:var(--sp-2);padding-bottom:2px;
+    scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+  .insight-hero::-webkit-scrollbar{display:none;}
+  .insight-hero>.insight-item{flex:0 0 78%;scroll-snap-align:start;}
+  .insight-dots{display:flex;}
+  .insight-group .insight-more{grid-template-columns:repeat(2,minmax(0,1fr));}
+}
 
 /* 按钮：胶囊造型 + 彩色轻投影 + 按压阻尼 */
 .btn{border:0;background:var(--primary-weak);color:var(--primary);
@@ -215,13 +241,6 @@ tr:last-child td{border-bottom:0;}
 .tx-hint:empty{display:none;}
 .tx-hint b{color:var(--text);font-weight:600;}
 .tx-hint b.warn{color:var(--red);}
-.role-chip{display:inline-block;padding:1px 8px;border-radius:20px;font-size:var(--fs-micro);
-  background:var(--fill);color:var(--muted);margin-right:6px;font-weight:600;}
-/* 账户表分组行 */
-tr.grp td{padding:var(--sp-2) 10px;background:var(--fill);border-bottom:0;}
-.grp-in{display:flex;justify-content:space-between;align-items:center;
-  font-size:var(--fs-caption);color:var(--muted);font-weight:600;}
-.grp-in em{font-style:normal;font-variant-numeric:tabular-nums;}
 /* 空状态：给一块浅表面，不再只是一行灰字 */
 .empty{color:var(--muted);font-size:var(--fs-body);
   padding:var(--sp-8) var(--sp-4);text-align:center;line-height:1.7;
@@ -360,32 +379,29 @@ tr.grp td{padding:var(--sp-2) 10px;background:var(--fill);border-bottom:0;}
   .metric .val{font-size:19px;letter-spacing:-.3px;margin-top:2px;}
   .metric .foot{font-size:10.5px;line-height:1.35;margin-top:2px;}
   /* 账户表 → 卡片：名称与余额同行，操作按钮落到底部一行。
-     手机上不显示类型标签——分组标题已经说了大类，账户名通常也写明了类型，
-     一个彩色胶囊白白吃掉一整行，还会和金额错位。电脑版表格里仍保留类型列。 */
+     手机上不显示类型胶囊——账户名通常已写明类型，彩色标签会白占一行并与金额错位；
+     电脑版表格里仍保留类型列。 */
   #ov-accounts{overflow-x:visible;}
   #ov-accounts table{display:block;min-width:0;}
   #ov-accounts thead{display:none;}
   #ov-accounts tbody{display:block;}
-  #ov-accounts tr.grp{display:block;}
-  #ov-accounts tr.grp>td{display:block;padding:0;border:0;}
-  #ov-accounts tr.grp .grp-in{padding:12px 2px 4px;}
-  #ov-accounts tr:not(.grp){
+  #ov-accounts tr{
     display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:start;
     background:var(--fill);border-radius:14px;
     padding:12px 14px;margin:8px 0;}
-  #ov-accounts tr:not(.grp)>td{display:block;padding:0;border:0;}
-  #ov-accounts tr:not(.grp)>td:nth-child(1){grid-column:1;font-size:15px;line-height:1.4;}
-  #ov-accounts tr:not(.grp)>td:nth-child(1) .muted{font-size:11.5px;line-height:1.4;}
-  #ov-accounts tr:not(.grp)>td:nth-child(2){display:none;}
-  #ov-accounts tr:not(.grp)>td:nth-child(3){
+  #ov-accounts tr>td{display:block;padding:0;border:0;}
+  #ov-accounts tr>td:nth-child(1){grid-column:1;font-size:15px;line-height:1.4;}
+  #ov-accounts tr>td:nth-child(1) .muted{font-size:11.5px;line-height:1.4;}
+  #ov-accounts tr>td:nth-child(2){display:none;}
+  #ov-accounts tr>td:nth-child(3){
     grid-column:2;align-self:start;
     text-align:right;font-size:19px;font-weight:600;letter-spacing:-.4px;
     font-variant-numeric:tabular-nums;}
-  #ov-accounts tr:not(.grp)>td:nth-child(4){
+  #ov-accounts tr>td:nth-child(4){
     grid-column:1 / -1;margin-top:10px;
     text-align:left!important;white-space:normal!important;
     display:flex;gap:8px;flex-wrap:wrap;}
-  #ov-accounts tr:not(.grp)>td:nth-child(4) .btn{flex:1 1 0;text-align:center;}
+  #ov-accounts tr>td:nth-child(4) .btn{flex:1 1 0;text-align:center;}
   /* 明细列表：日期栏收窄，文字允许折行 */
   .list-item{gap:8px;padding:10px 4px;align-items:flex-start;}
   .list-item>span:first-child{width:40px!important;font-size:12px;padding-top:2px;}
@@ -455,9 +471,9 @@ tr.grp td{padding:var(--sp-2) 10px;background:var(--fill);border-bottom:0;}
       <h3>花销洞察</h3>
       <span class="muted" id="insight-scope"></span>
       <span style="flex:1"></span>
-      <span class="muted" style="font-size:11px">点击指标查看明细</span>
+      <span class="muted" style="font-size:11px">点击看明细 · 更多指标在下方</span>
     </div>
-    <div class="grid insight" id="insight-grid"></div>
+    <div id="insight-grid"></div>
   </div>
   <div class="card" id="dca-card" style="margin-top:14px">
     <div class="card-head">
@@ -1445,20 +1461,63 @@ function buildInsights(){
 }
 
 var INSIGHT_CACHE = [];
+/* 按语义分组；用指标名匹配，避免依赖 buildInsights() 的 push 顺序 */
+var INSIGHT_GROUPS = [
+  {name:'本月总览', labs:['最大花销分类','前三分类集中度','本月至今 vs 上月同期','自动支出占比']},
+  {name:'笔数与笔均', labs:['笔均支出 · 仅手动','手动支出笔数','最大单笔支出']},
+  {name:'趋势与结构', labs:['近 30 天支出','涨得最快的分类','周末 / 工作日日均']}
+];
+var INSIGHT_TEXT_LABS = ['最大花销分类','涨得最快的分类'];
+function insightIndex(items, lab){
+  for (var i = 0; i < items.length; i++){ if (items[i].lab === lab) return i; }
+  return -1;
+}
+function insightButton(it, i){
+  var textual = !it.empty && INSIGHT_TEXT_LABS.indexOf(it.lab) >= 0;
+  return '<button type="button" class="insight-item' +
+    (it.empty ? ' empty-val' : '') + (textual ? ' is-text' : '') +
+    '" onclick="openInsight(' + i + ')">' +
+    '<span class="lab">' + it.lab + '</span>' +
+    '<span class="val">' + it.val + '</span>' +
+    '<span class="foot">' + it.foot + '</span></button>';
+}
 function renderInsights(){
   var box = document.getElementById('insight-grid');
   if (!box) return;
   var items = buildInsights();
   INSIGHT_CACHE = items;
-  box.innerHTML = items.map(function(it, i){
-    return '<button type="button" class="insight-item' + (it.empty ? ' empty-val' : '') +
-      '" onclick="openInsight(' + i + ')">' +
-      '<span class="lab">' + it.lab + '</span>' +
-      '<span class="val">' + it.val + '</span>' +
-      '<span class="foot">' + it.foot + '</span></button>';
-  }).join('');
+  function buttons(labels){
+    return labels.map(function(lab){
+      var i = insightIndex(items, lab);
+      return i < 0 ? '' : insightButton(items[i], i);
+    }).join('');
+  }
+  var hero = INSIGHT_GROUPS[0];
+  var html = '<div class="insight-hero" id="insight-hero">' + buttons(hero.labs) + '</div>' +
+    '<div class="insight-dots" id="insight-dots">' +
+      hero.labs.map(function(_, n){ return '<i' + (n ? '' : ' class="on"') + '></i>'; }).join('') +
+    '</div>';
+  INSIGHT_GROUPS.slice(1).forEach(function(g){
+    html += '<details class="insight-group"><summary>' + g.name +
+      '<span style="margin-left:auto;font-size:var(--fs-micro)">' + g.labs.length + ' 项</span></summary>' +
+      '<div class="insight-more">' + buttons(g.labs) + '</div></details>';
+  });
+  box.innerHTML = html;
   var scope = document.getElementById('insight-scope');
   if (scope) scope.textContent = '本月至今 · 含自动支出 · 截至今天';
+  bindInsightDots();
+}
+function bindInsightDots(){
+  var hero = document.getElementById('insight-hero');
+  var dots = document.getElementById('insight-dots');
+  if (!hero || !dots || !hero.firstElementChild) return;
+  hero.addEventListener('scroll', function(){
+    var step = hero.firstElementChild.offsetWidth + 8;
+    var n = Math.round(hero.scrollLeft / Math.max(1, step));
+    Array.prototype.forEach.call(dots.children, function(d, i){
+      d.className = (i === n) ? 'on' : '';
+    });
+  }, {passive:true});
 }
 function openInsight(i){
   var it = INSIGHT_CACHE[i];
@@ -1581,11 +1640,6 @@ function renderOverview(){
   ROLE_ORDER.forEach(function(role){
     var list = accountsByRole(role);
     if (!list.length) return;
-    var sum = 0;
-    list.forEach(function(a){ sum += bal[a.id] || 0; });
-    body += '<tr class="grp"><td colspan="4"><div class="grp-in"><span>' +
-      ROLE_META[role].label + (ROLE_META[role].suffix || '') +
-      '</span><em>合计 ' + money(sum) + '</em></div></td></tr>';
     body += list.map(acctRow).join('');
   });
 
@@ -1659,7 +1713,6 @@ function updateTxHint(){
   if (!acc){ el.innerHTML = ''; return; }
   var amt = +document.getElementById('tx-amount').value || 0;
   var bal = currentBalances()[acc.id] || 0;
-  var roleTag = '<span class="role-chip">' + ROLE_META[roleOf(acc)].label + '</span>';
 
   function delta(v){
     var cls = (v < 0 && !privacyOn) ? ' class="warn"' : '';
@@ -1668,14 +1721,14 @@ function updateTxHint(){
 
   if (txType === 'transfer'){
     var toAcc = accountById(document.getElementById('tx-to').value);
-    if (!toAcc){ el.innerHTML = roleTag + ' 转出账户：' + esc(acc.name) + ' 当前 ' + money(bal); return; }
+    if (!toAcc){ el.innerHTML = '转出账户：' + esc(acc.name) + ' 当前 ' + money(bal); return; }
     var toBal = currentBalances()[toAcc.id] || 0;
     el.innerHTML = esc(acc.name) + ' ' + money(bal) + ' → ' + delta(bal - amt) +
       ' · ' + esc(toAcc.name) + ' ' + money(toBal) + ' → ' + delta(toBal + amt);
     return;
   }
   var after = (txType === 'income') ? bal + amt : bal - amt;
-  el.innerHTML = roleTag + esc(acc.name) + ' 当前 ' + money(bal) +
+  el.innerHTML = esc(acc.name) + ' 当前 ' + money(bal) +
     (amt > 0 ? ' · 记完变为 ' + delta(after) : (roleOf(acc) === 'hold' ? ' · 长期持有账户，日常开支建议走活期' : ''));
 }
 function setTxType(t){
