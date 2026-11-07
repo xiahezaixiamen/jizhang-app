@@ -87,10 +87,22 @@ section.tab{display:none;padding-top:var(--sp-8);}
 section.tab.show{display:block;animation:fadeUp .4s var(--ease);}
 @keyframes fadeUp{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
 
-/* 冷启动首屏淡入：纯 CSS，不依赖 JS 触发，数据加载失败也不会遮住错误提示。
-   只做 opacity，避免与页签的 fadeUp 位移叠加；reduce 动效时全局规则自动关闭。 */
-header,.wrap{animation:bootFade .32s var(--ease) both;}
+/* 冷启动首屏：HTML 到达时先隐藏，等 reload() 把数据填完再由 JS 加 .boot-anim 触发，
+   避免动画播在空壳上。容器淡入 + 5 张指标卡每隔 55ms 依次上浮；只播一次。 */
+body.boot-pending header,
+body.boot-pending .wrap{opacity:0;}
+body.boot-anim header,
+body.boot-anim .wrap{animation:bootFade .42s cubic-bezier(.22,.61,.36,1) both;}
 @keyframes bootFade{from{opacity:0;}to{opacity:1;}}
+/* 冷启动期间关掉页签自身的 fadeUp，消除父子 opacity 相乘造成的「闪一下」 */
+body.boot-anim section.tab.show{animation:none;}
+body.boot-anim #ov-metrics .metric{animation:cardRise .52s cubic-bezier(.22,.61,.36,1) both;}
+@keyframes cardRise{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:none;}}
+body.boot-anim #ov-metrics .metric:nth-child(1){animation-delay:.06s;}
+body.boot-anim #ov-metrics .metric:nth-child(2){animation-delay:.115s;}
+body.boot-anim #ov-metrics .metric:nth-child(3){animation-delay:.17s;}
+body.boot-anim #ov-metrics .metric:nth-child(4){animation-delay:.225s;}
+body.boot-anim #ov-metrics .metric:nth-child(5){animation-delay:.28s;}
 
 h2{font-size:15px;font-weight:600;margin:0 0 var(--sp-1);letter-spacing:-.2px;}
 .sub{color:var(--muted);font-size:12.5px;margin:0 0 var(--sp-3);}
@@ -352,6 +364,8 @@ tr:last-child td{border-bottom:0;}
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;}
+  /* boot-pending 是静态 opacity，不受 animation:none 影响，必须单独放行避免白屏 */
+  body.boot-pending header,body.boot-pending .wrap{opacity:1;}
 }
 </style>
 <style id="mobile-skin">
@@ -454,7 +468,7 @@ tr:last-child td{border-bottom:0;}
 }
 </style>
 </head>
-<body>
+<body class="boot-pending">
 <header>
   <div class="head-inner">
     <nav id="nav"></nav>
@@ -1997,6 +2011,8 @@ function renderData(){
 
 /* ================= 总渲染 ================= */
 function renderAll(){
+  /* 用户一有操作就定格首屏动画，避免重建指标卡时重复上浮 */
+  document.body.classList.remove('boot-anim');
   stopRoll();
   ROLL_SLOTS.length = 0;
   fillAccountSelects();
@@ -2838,6 +2854,21 @@ document.getElementById('tx-to').addEventListener('change', updateTxHint);
 document.getElementById('led-month').addEventListener('change', renderLedger);
 document.getElementById('ana-period').addEventListener('change', renderAnalysis);
 
+/* 首屏动效收口：数据就绪后才播；失败、reduce、提前交互一律直接显示，绝不白屏。 */
+function endBootAnim(play){
+  var b = document.body;
+  b.classList.remove('boot-pending');
+  if (!play) return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  b.classList.add('boot-anim');
+  /* 总时长 = 最后一张卡 .28s + .52s = .8s，留 100ms 余量后移除，确保只播一次 */
+  setTimeout(function(){ b.classList.remove('boot-anim'); }, 900);
+}
+/* 极端兜底：boot() 在到达任何出口前就抛异常时，2.5s 后强制显示 */
+setTimeout(function(){
+  if (document.body.classList.contains('boot-pending')) endBootAnim(false);
+}, 2500);
+
 (async function boot(){
   var errBox = document.getElementById('boot-error');
   buildNav();
@@ -2861,6 +2892,7 @@ document.getElementById('ana-period').addEventListener('change', renderAnalysis)
   if (location.protocol === 'file:'){
     errBox.style.display = '';
     errBox.textContent = '请通过本地服务打开：双击 D:\\记账\\启动记账.bat，浏览器会自动打开 http://127.0.0.1:8765';
+    endBootAnim(false);
     return;
   }
 
@@ -2869,6 +2901,7 @@ document.getElementById('ana-period').addEventListener('change', renderAnalysis)
   } catch(e){
     errBox.style.display = '';
     errBox.textContent = '数据未能加载：' + e.message + '（本地数据加载失败，请确认浏览器未处于无痕模式，或换用 Safari）';
+    endBootAnim(false);
     return;
   }
 
@@ -2888,6 +2921,7 @@ document.getElementById('ana-period').addEventListener('change', renderAnalysis)
       }
     }
   } catch(e){}
+  endBootAnim(true);
 })();
 </script>
 <script>
