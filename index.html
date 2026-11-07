@@ -596,31 +596,6 @@ tr.grp td{padding:var(--sp-2) 10px;background:var(--fill);border-bottom:0;}
     <p class="muted" style="margin:0" id="data-desc"></p>
   </div>
   <div class="card" style="margin-top:14px">
-    <h3>资产分类规则</h3>
-    <div class="muted" style="margin:0;line-height:1.85">
-      <b style="color:var(--text)">活期 / 银行卡</b>：两个独立分类，各自单独核算余额，不再合并成一个数字；两者同属「日常可用」。<br>
-      <b style="color:var(--text)">银行理财</b>：单独建账、单独汇总，既不计入活期，也不计入银行卡的可用余额。<br>
-      <b style="color:var(--text)">长期持有</b>：定期 / 股票 / 基金 / 其他资产，与银行理财分开统计。<br>
-      净资产 = 日常可用 + 银行理财 + 长期持有 − 负债；资产构成图按上述类型分别着色。
-    </div>
-  </div>
-  <div class="card" style="margin-top:14px">
-    <h3>自动结算规则 · 定投与固定支出</h3>
-    <div class="muted" style="margin:0;line-height:1.85">
-      <b style="color:var(--text)">触发时机</b>：没有常驻进程，脚本不运行期间不单独触发扣款；每次打开页面按「截至今天」的日历一次性结算。<br>
-      <b style="color:var(--text)">补扣范围</b>：补齐起始日以来所有应扣未扣的计费日，含当天。例：上次扣款在周一、周五才重新打开 → 补周二/三/四 + 周五，共 4 笔。<br>
-      <b style="color:var(--text)">周期边界</b>：一个自然日 = 一个计费周期，当天至多一笔；未来不预扣；改金额从当天起生效，历史不重算，当天只按新金额算一次。<br>
-      <b style="color:var(--text)">防重复</b>：扣款由「配置版本 + 日历」无状态派生，不写入流水表。刷新、重启、导入导出后结果恒等，不会重复扣。<br>
-      <b style="color:var(--text)">影响范围</b>：只改变两个账户的余额与投资净投入口径；不计入收支统计、明细列表和 CSV；账户间转移，净资产总额不变。
-    </div>
-    <div class="muted" style="margin:14px 0 0;line-height:1.85;padding-top:12px;border-top:.5px solid var(--hair)">
-      <b style="color:var(--text)">每日固定支出</b>：触发时机、补齐范围、周期边界、防重复与定投共用同一套按日历派生规则。区别是它生成「支出」而非转账：<br>
-      · 计入本月支出与分类统计、显示在明细里（标「自动」，不可单条删除）、随 CSV 一起导出；<br>
-      · 净资产逐日减少，趋势曲线同步体现；<br>
-      · 改金额、改分类、启用或停用都只从当天起生效，历史保持原样；只有清除配置才会移除历史。
-    </div>
-  </div>
-  <div class="card" style="margin-top:14px">
     <h3>备份与恢复</h3>
     <p class="muted" style="margin:0 0 12px">定期导出 JSON 放到网盘或移动硬盘，即使数据库损坏也能完整恢复。</p>
     <div class="toolbar" style="margin-bottom:0">
