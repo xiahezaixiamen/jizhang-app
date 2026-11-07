@@ -87,6 +87,11 @@ section.tab{display:none;padding-top:var(--sp-8);}
 section.tab.show{display:block;animation:fadeUp .4s var(--ease);}
 @keyframes fadeUp{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
 
+/* 冷启动首屏淡入：纯 CSS，不依赖 JS 触发，数据加载失败也不会遮住错误提示。
+   只做 opacity，避免与页签的 fadeUp 位移叠加；reduce 动效时全局规则自动关闭。 */
+header,.wrap{animation:bootFade .32s var(--ease) both;}
+@keyframes bootFade{from{opacity:0;}to{opacity:1;}}
+
 h2{font-size:15px;font-weight:600;margin:0 0 var(--sp-1);letter-spacing:-.2px;}
 .sub{color:var(--muted);font-size:12.5px;margin:0 0 var(--sp-3);}
 .grid{display:grid;gap:var(--sp-3);}
@@ -915,10 +920,37 @@ function updatePrivacyBtn(){
   btn.setAttribute('aria-pressed', String(!privacyOn));
   btn.title = label;
 }
+/* 净资产数字滚动：只在「隐藏 → 显示」那一次切换时播放。
+   隐私开启时只显示掩码，绝不把真实数值写进 DOM；reduce 动效时直接保持终值。 */
+var rollRaf = 0;
+function stopRoll(){
+  if (rollRaf){ cancelAnimationFrame(rollRaf); rollRaf = 0; }
+}
+function rollNetWorth(){
+  stopRoll();
+  if (privacyOn || activeTab !== 'overview') return;
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  var el = document.querySelector('#ov-metrics .metric .val');
+  if (!el) return;
+  var target = netOf(currentBalances()).net;
+  if (!isFinite(target)) return;
+  var t0 = performance.now(), dur = 780;
+  function step(t){
+    if (privacyOn){ stopRoll(); return; }
+    var p = Math.min(1, (t - t0) / dur);
+    var v = target * (1 - Math.pow(1 - p, 3));
+    el.textContent = p < 1 ? moneyShort(v) : moneyShort(target);
+    rollRaf = p < 1 ? requestAnimationFrame(step) : 0;
+  }
+  el.textContent = moneyShort(0);
+  rollRaf = requestAnimationFrame(step);
+}
 function togglePrivacy(){
+  var wasHidden = privacyOn;
   privacyOn = !privacyOn;
   updatePrivacyBtn();
   renderAll();
+  if (wasHidden && !privacyOn) rollNetWorth();
 }
 document.getElementById('privacy-btn').addEventListener('click', togglePrivacy);
 
@@ -1938,6 +1970,7 @@ function renderData(){
 
 /* ================= 总渲染 ================= */
 function renderAll(){
+  stopRoll();
   fillAccountSelects();
   renderInsights();
   tabById(activeTab).render();
