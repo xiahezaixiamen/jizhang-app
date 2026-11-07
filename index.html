@@ -920,29 +920,50 @@ function updatePrivacyBtn(){
   btn.setAttribute('aria-pressed', String(!privacyOn));
   btn.title = label;
 }
-/* 净资产数字滚动：只在「隐藏 → 显示」那一次切换时播放。
-   隐私开启时只显示掩码，绝不把真实数值写进 DOM；reduce 动效时直接保持终值。 */
+/* 指标数字滚动：渲染时把数值登记在 JS 内存里，DOM 只存索引（不泄露真实金额）。
+   覆盖资产页 5 张卡、明细页 4 张卡，以及「较上次记录」「收入/支出」里的金额。
+   只在「隐藏 → 显示」那一次切换时播放；隐私开启时不写真实数值，
+   reduce 动效时直接保持终值。 */
+var ROLL_SLOTS = [];
 var rollRaf = 0;
+/* 终值 ≥ 1 万时全程用「万」格式，避免中途从 ¥9,999.00 跳成 ¥1.00 万 */
+function rollFmtMoney(v, target){
+  if (Math.abs(target) >= 10000) return (v < 0 ? '-¥' : '¥') + (Math.abs(v)/10000).toFixed(2) + ' 万';
+  return money(v);
+}
+function rollFmtNum(v){ return num(v); }
+function rollIndex(value, fmt){
+  var i = ROLL_SLOTS.length;
+  ROLL_SLOTS.push({v:value, fmt:fmt || rollFmtMoney});
+  return i;
+}
+function rollSpan(value, text, fmt){
+  return '<span data-ri="' + rollIndex(value, fmt) + '">' + text + '</span>';
+}
 function stopRoll(){
   if (rollRaf){ cancelAnimationFrame(rollRaf); rollRaf = 0; }
 }
-function rollNetWorth(){
+function rollMetrics(){
   stopRoll();
-  if (privacyOn || activeTab !== 'overview') return;
+  if (privacyOn) return;
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  var el = document.querySelector('#ov-metrics .metric .val');
-  if (!el) return;
-  var target = netOf(currentBalances()).net;
-  if (!isFinite(target)) return;
+  var scope = document.querySelector('section.tab.show');
+  if (!scope) return;
+  var items = [];
+  Array.prototype.forEach.call(scope.querySelectorAll('[data-ri]'), function(el){
+    var s = ROLL_SLOTS[+el.getAttribute('data-ri')];
+    if (s && isFinite(s.v)) items.push({el:el, v:s.v, fmt:s.fmt});
+  });
+  if (!items.length) return;
   var t0 = performance.now(), dur = 780;
   function step(t){
     if (privacyOn){ stopRoll(); return; }
     var p = Math.min(1, (t - t0) / dur);
-    var v = target * (1 - Math.pow(1 - p, 3));
-    el.textContent = p < 1 ? moneyShort(v) : moneyShort(target);
+    var k = 1 - Math.pow(1 - p, 3);
+    items.forEach(function(it){ it.el.textContent = it.fmt(it.v * k, it.v); });
     rollRaf = p < 1 ? requestAnimationFrame(step) : 0;
   }
-  el.textContent = moneyShort(0);
+  items.forEach(function(it){ it.el.textContent = it.fmt(0, it.v); });
   rollRaf = requestAnimationFrame(step);
 }
 function togglePrivacy(){
@@ -950,7 +971,7 @@ function togglePrivacy(){
   privacyOn = !privacyOn;
   updatePrivacyBtn();
   renderAll();
-  if (wasHidden && !privacyOn) rollNetWorth();
+  if (wasHidden && !privacyOn) rollMetrics();
 }
 document.getElementById('privacy-btn').addEventListener('click', togglePrivacy);
 
@@ -1558,6 +1579,7 @@ function openInsight(i){
 }
 
 function renderOverview(){
+  ROLL_SLOTS.length = 0;
   renderDca();
   renderBackupBar();
   var bal = currentBalances();
@@ -1569,7 +1591,8 @@ function renderOverview(){
   var delta = n.net - prev;
   var deltaText = series.length >= 2
     ? (privacyOn ? '较上次记录 ' + PRIVACY_MASK
-                 : '较上次记录 ' + (delta >= 0 ? '+' : '−') + num(Math.abs(delta)))
+                 : '较上次记录 ' + (delta >= 0 ? '+' : '−') +
+                   rollSpan(Math.abs(delta), num(Math.abs(delta)), rollFmtNum))
     : '资产 − 负债';
 
   var dailySum = sumRole('daily'), wealthSum = sumRole('wealth'), holdSum = sumRole('hold');
@@ -1577,11 +1600,13 @@ function renderOverview(){
       wealthN = accountsByRole('wealth').length, holdN = accountsByRole('hold').length;
 
   document.getElementById('ov-metrics').innerHTML =
-    metricCard('净资产', moneyShort(n.net), deltaText) +
-    metricCard('日常可用', moneyShort(dailySum), dailyN + ' 个 · 两类独立核算') +
-    metricCard('银行理财', moneyShort(wealthSum), wealthN + ' 个 · 挂卡不计入可用余额') +
-    metricCard('长期持有', moneyShort(holdSum), holdN + ' 个 · 不参与日常消费') +
-    metricCard('本月结余', moneyShort(m.balance), '收入 ' + moneyShort(m.income) + ' · 支出 ' + moneyShort(m.expense));
+    metricCard('净资产', moneyShort(n.net), deltaText, null, rollIndex(n.net)) +
+    metricCard('日常可用', moneyShort(dailySum), dailyN + ' 个 · 两类独立核算', null, rollIndex(dailySum)) +
+    metricCard('银行理财', moneyShort(wealthSum), wealthN + ' 个 · 挂卡不计入可用余额', null, rollIndex(wealthSum)) +
+    metricCard('长期持有', moneyShort(holdSum), holdN + ' 个 · 不参与日常消费', null, rollIndex(holdSum)) +
+    metricCard('本月结余', moneyShort(m.balance),
+      '收入 ' + rollSpan(m.income, moneyShort(m.income)) + ' · 支出 ' + rollSpan(m.expense, moneyShort(m.expense)),
+      null, rollIndex(m.balance));
 
   var help = document.getElementById('ov-help');
   if (!db.accounts.length){
@@ -1680,9 +1705,10 @@ function renderOverview(){
     : '<div class="empty">还没有账户，点击右上角「添加账户」开始</div>';
 }
 
-function metricCard(lab, val, foot, cls){
+function metricCard(lab, val, foot, cls, ri){
   return '<div class="metric"><div class="lab">' + lab + '</div>' +
-    '<div class="val' + (cls ? ' ' + cls : '') + '">' + val + '</div>' +
+    '<div class="val' + (cls ? ' ' + cls : '') + '"' +
+      (ri == null ? '' : ' data-ri="' + ri + '"') + '>' + val + '</div>' +
     '<div class="foot">' + foot + '</div></div>';
 }
 
@@ -1777,16 +1803,17 @@ function setTxType(t){
 }
 
 function renderLedger(){
+  ROLL_SLOTS.length = 0;
   renderFixed();
   var month = document.getElementById('led-month').value || thisMonth();
   var m = monthStats(month);
 
   document.getElementById('led-metrics').innerHTML =
-    metricCard('本月支出', moneyShort(m.expense), m.count + ' 笔记录') +
-    metricCard('本月收入', moneyShort(m.income), '工资、奖金等') +
+    metricCard('本月支出', moneyShort(m.expense), m.count + ' 笔记录', null, rollIndex(m.expense)) +
+    metricCard('本月收入', moneyShort(m.income), '工资、奖金等', null, rollIndex(m.income)) +
     metricCard('本月结余', moneyShort(m.balance), privacyOn ? '—' : (m.balance >= 0 ? '有结余' : '超支'),
-      privacyOn ? '' : (m.balance >= 0 ? 'green' : 'red')) +
-    metricCard('日均支出', moneyShort(m.expense / 30), '按 30 天估算');
+      privacyOn ? '' : (m.balance >= 0 ? 'green' : 'red'), rollIndex(m.balance)) +
+    metricCard('日均支出', moneyShort(m.expense / 30), '按 30 天估算', null, rollIndex(m.expense / 30));
 
   /* 支出构成 */
   var cats = Object.keys(m.byCat).sort(function(x,y){ return m.byCat[y] - m.byCat[x]; });
@@ -1971,12 +1998,15 @@ function renderData(){
 /* ================= 总渲染 ================= */
 function renderAll(){
   stopRoll();
+  ROLL_SLOTS.length = 0;
   fillAccountSelects();
   renderInsights();
   tabById(activeTab).render();
   renderData();
 }
 function renderCurrent(){
+  stopRoll();
+  ROLL_SLOTS.length = 0;
   tabById(activeTab).render();
 }
 
