@@ -590,24 +590,6 @@ tr:last-child td{border-bottom:0;}
 <section id="tab-analysis" class="tab">
   <div class="card">
     <div class="card-head">
-      <h3>自定义周期花销</h3>
-      <span style="flex:1"></span>
-      <span class="muted" id="cp-scope" style="font-size:11.5px"></span>
-    </div>
-    <div class="toolbar cp-bar" style="margin-bottom:10px">
-      <div class="field"><label for="cp-from">周期起</label><input type="date" id="cp-from" style="width:150px"></div>
-      <div class="field"><label for="cp-to">周期止</label><input type="date" id="cp-to" style="width:150px"></div>
-      <div class="field"><label for="cp-day">发薪日</label><select id="cp-day" style="width:82px"></select></div>
-      <button class="btn" type="button" onclick="cpPreset(-1)">上期</button>
-      <button class="btn" type="button" onclick="cpPreset(0)">本期</button>
-      <button class="btn" type="button" onclick="cpPreset(1)">下期</button>
-    </div>
-    <p class="muted" style="margin:0 0 12px">按发薪日自动划分周期，也可直接改起止日期看任意区间；未来日期不计入。</p>
-    <div class="cards" id="cp-metrics" style="margin-bottom:12px"></div>
-    <div id="cp-table"></div>
-  </div>
-  <div class="card">
-    <div class="card-head">
       <h3>净资产变化</h3>
       <span style="flex:1"></span>
       <select id="ana-period" style="width:130px">
@@ -633,6 +615,24 @@ tr:last-child td{border-bottom:0;}
   <div class="card" style="margin-top:14px">
     <h3>近 6 个月收支趋势</h3>
     <div class="chart-box"><canvas id="c-ana-exp"></canvas></div>
+  </div>
+  <div class="card" style="margin-top:14px">
+    <div class="card-head">
+      <h3>自定义周期花销</h3>
+      <span style="flex:1"></span>
+      <span class="muted" id="cp-scope" style="font-size:11.5px"></span>
+      <button class="btn btn-sm" type="button" onclick="cpOpenDetail(null)">详细数据</button>
+    </div>
+    <div class="toolbar cp-bar" style="margin-bottom:10px">
+      <div class="field"><label for="cp-from">周期起</label><input type="date" id="cp-from" style="width:150px"></div>
+      <div class="field"><label for="cp-to">周期止</label><input type="date" id="cp-to" style="width:150px"></div>
+      <div class="field"><label for="cp-day">发薪日</label><select id="cp-day" style="width:82px"></select></div>
+      <button class="btn" type="button" onclick="cpPreset(-1)">上期</button>
+      <button class="btn" type="button" onclick="cpPreset(0)">本期</button>
+      <button class="btn" type="button" onclick="cpPreset(1)">下期</button>
+    </div>
+    <div class="chart-box" id="cp-chart-box"><canvas id="cp-chart"></canvas></div>
+    <p class="muted" style="margin:8px 0 0">点击柱条看该分类明细，点空白处或「详细数据」看全部；未来日期不计入。</p>
   </div>
 </section>
 
@@ -1923,6 +1923,7 @@ function renderLedger(){
 /* ============ 自定义周期花销：发薪日不固定，按任意起止区间统计 ============ */
 var CP_DAY_KEY = 'jizhang.cp.day';
 var cpDayMem = 1;
+var CP_LAST = null;
 
 function cpGetDay(){
   try {
@@ -1962,29 +1963,30 @@ function cpPreset(offset){
 }
 function cpStats(from, to){
   var end = to > today() ? today() : to;
-  var inc = 0, exp = 0, expCnt = 0, auto = 0, byCat = {};
+  var inc = 0, exp = 0, expCnt = 0, auto = 0, byCat = {}, list = [];
   (db.transactions || []).concat(db.autoTx || []).forEach(function(t){
     if (!t.date || t.date < from || t.date > end) return;
     var a = t.amount || 0;
-    if (t.type === 'income') inc += a;
-    else if (t.type === 'expense'){
-      exp += a; expCnt++;
+    if (t.type === 'income'){
+      inc += a; list.push(t);
+    } else if (t.type === 'expense'){
+      exp += a; expCnt++; list.push(t);
       if (t.auto) auto += a;
       var k = t.category || '其他';
       if (!byCat[k]) byCat[k] = {amount:0, count:0};
       byCat[k].amount += a; byCat[k].count++;
     }
   });
+  list.sort(function(x,y){ return x.date < y.date ? 1 : (x.date > y.date ? -1 : 0); });
   var cats = Object.keys(byCat).map(function(k){
     return {cat:k, amount:byCat[k].amount, count:byCat[k].count};
   }).sort(function(a,b){ return b.amount - a.amount; });
-  return {income:inc, expense:exp, count:expCnt, auto:auto, cats:cats};
+  return {income:inc, expense:exp, count:expCnt, auto:auto, cats:cats, list:list};
 }
 function cpRender(){
   var fi = document.getElementById('cp-from'), ti = document.getElementById('cp-to');
-  var box = document.getElementById('cp-metrics'), tb = document.getElementById('cp-table');
   var scope = document.getElementById('cp-scope');
-  if (!fi || !ti || !box || !tb || !scope || !fi.value || !ti.value) return;
+  if (!fi || !ti || !scope || !fi.value || !ti.value) return;
   var from = fi.value, to = ti.value;
   if (from > to){ var tmp = from; from = to; to = tmp; fi.value = from; ti.value = to; }
   var span = Math.round((new Date(to + 'T00:00:00') - new Date(from + 'T00:00:00')) / 86400000) + 1;
@@ -2000,23 +2002,93 @@ function cpRender(){
     var r = (s.expense - p.expense) / p.expense * 100;
     cmp = '较上期 ' + (r >= 0 ? '+' : '−') + Math.abs(r).toFixed(1) + '%';
   } else if (s.expense > 0) cmp = '上期无支出';
+  CP_LAST = {from:from, to:to, span:span, effSpan:effSpan, clamped:clamped, stats:s, cmp:cmp};
   scope.textContent = from.slice(5) + ' ~ ' + to.slice(5) + ' · ' + span + ' 天' +
     (clamped ? ' · 截至今天' : '');
-  box.innerHTML =
-    metricCard('周期支出', moneyShort(s.expense), cmp) +
-    metricCard('周期收入', moneyShort(s.income), '工资、奖金等') +
-    metricCard('周期结余', moneyShort(s.income - s.expense),
-      (s.income - s.expense) >= 0 ? '有结余' : '超支') +
-    metricCard('日均支出', moneyShort(s.expense / effSpan),
-      s.count + ' 笔 · 自动 ' + money(s.auto));
-  tb.innerHTML = s.cats.length
-    ? '<table><thead><tr><th>分类</th><th class="num">金额</th><th class="num">占比</th><th class="num">笔数</th></tr></thead><tbody>' +
+  /* 页签隐藏时 Chart.js 拿到 0 宽高，只在可见时画图；切到分析页会再调一次 */
+  var tab = document.getElementById('tab-analysis');
+  if (tab && tab.classList.contains('show')) cpDrawChart(s);
+}
+function cpDrawChart(s){
+  var box = document.getElementById('cp-chart-box');
+  var cats = s.cats;
+  if (box) box.style.height = Math.min(420, Math.max(cats.length ? 200 : 180, cats.length * 34 + 56)) + 'px';
+  if (!cats.length){
+    draw('cp-chart', {
+      type:'bar', data:{labels:[], datasets:[]},
+      options:{responsive:true, maintainAspectRatio:false,
+        onClick:function(){ cpOpenDetail(null); },
+        scales:{x:{display:false}, y:{display:false}},
+        plugins:{legend:{display:false}, tooltip:{enabled:false},
+          title:{display:true, text:'这个周期还没有支出记录 · 点击查看详细数据',
+            color:'rgba(60,60,67,.45)', font:{size:12, weight:'400'}}}}
+    });
+    return;
+  }
+  var opts = baseOpts({indexAxis:'y'});
+  opts.interaction = {mode:'nearest', intersect:true};
+  opts.plugins.tooltip.callbacks.label = function(c){ return money(c.parsed.x); };
+  opts.scales.y.ticks.autoSkip = false;
+  opts.onClick = function(evt, els){
+    if (els && els.length && cats[els[0].index]) cpOpenDetail(cats[els[0].index].cat);
+    else cpOpenDetail(null);
+  };
+  draw('cp-chart', {
+    type:'bar',
+    data:{labels:cats.map(function(c){ return c.cat; }),
+      datasets:[{label:'支出', data:cats.map(function(c){ return c.amount; }),
+        backgroundColor:'#ff3b30', borderRadius:4, maxBarThickness:22}]},
+    options: opts
+  });
+}
+/* 点击图表 / 「详细数据」后展开：指标、分类构成、流水明细 */
+function cpOpenDetail(cat){
+  if (!CP_LAST) cpRender();
+  var L = CP_LAST;
+  if (!L) return;
+  var s = L.stats;
+  var list = s.list.filter(function(t){
+    return !cat || (t.type === 'expense' && (t.category || '其他') === cat);
+  });
+  var html = '<div class="insight-detail">' +
+    '<div class="note">' + L.from + ' ~ ' + L.to + ' · ' + L.span + ' 天' +
+      (L.clamped ? ' · 截至今天' : '') + ' · 起止均含当天</div>' +
+    '<table><thead><tr><th>指标</th><th class="num">金额</th></tr></thead><tbody>' +
+      '<tr><td>周期支出</td><td class="num">' + moneyShort(s.expense) + '</td></tr>' +
+      '<tr><td>周期收入</td><td class="num">' + moneyShort(s.income) + '</td></tr>' +
+      '<tr><td>周期结余</td><td class="num">' + moneyShort(s.income - s.expense) + '</td></tr>' +
+      '<tr><td>日均支出</td><td class="num">' + moneyShort(s.expense / L.effSpan) + '</td></tr>' +
+      '<tr><td>支出笔数</td><td class="num">' + s.count + ' 笔 · 自动 ' + money(s.auto) + '</td></tr>' +
+      '<tr><td>环比</td><td class="num">' + L.cmp + '</td></tr>' +
+    '</tbody></table>';
+  if (!cat && s.cats.length){
+    html += '<div class="note">分类构成</div>' +
+      '<table><thead><tr><th>分类</th><th class="num">金额</th><th class="num">占比</th><th class="num">笔数</th></tr></thead><tbody>' +
       s.cats.map(function(c){
         return '<tr><td>' + esc(c.cat) + '</td><td class="num">' + num(c.amount) +
           '</td><td class="num">' + (s.expense > 0 ? (c.amount/s.expense*100).toFixed(1) : '0.0') +
           '%</td><td class="num">' + c.count + '</td></tr>';
-      }).join('') + '</tbody></table>'
-    : '<div class="empty">这个周期还没有支出记录</div>';
+      }).join('') + '</tbody></table>';
+  }
+  html += '<div class="note">流水明细（' + list.length + ' 笔）</div>';
+  if (list.length){
+    html += '<table><thead><tr><th>日期</th><th>分类 · 账户 · 备注</th><th class="num">金额</th></tr></thead><tbody>' +
+      list.slice(0, 120).map(function(t){
+        var acc = accountById(t.accountId);
+        var desc = esc((t.category || (t.type === 'income' ? '收入' : '其他')) +
+          (acc ? ' · ' + acc.name : '') + (t.note ? ' · ' + t.note : '') +
+          (t.auto ? ' · 自动' : ''));
+        return '<tr><td>' + t.date.slice(5) + '</td><td>' + desc + '</td>' +
+          '<td class="num ' + (t.type === 'expense' ? 'neg' : 'pos') + '">' +
+          (t.type === 'expense' ? '−' : '+') + num(t.amount) + '</td></tr>';
+      }).join('') + '</tbody></table>';
+    if (list.length > 120) html += '<div class="note">仅显示最近 120 笔</div>';
+  } else {
+    html += '<div class="empty">这个周期还没有' + (cat ? '该分类的' : '') + '记录</div>';
+  }
+  html += '</div>';
+  openModal(cat ? cat + ' · 周期明细' : '周期详细数据', html,
+    function(){ return true; }, '关闭', true);
 }
 function cpInit(){
   var sel = document.getElementById('cp-day');
@@ -2122,6 +2194,7 @@ function renderAnalysis(){
     options: baseOpts({plugins:{legend:{display:true, position:'top', align:'end',
       labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:'rgba(60,60,67,.7)'}}}})
   });
+  cpRender();
 }
 
 /* ================= 渲染：数据 ================= */
@@ -2143,7 +2216,6 @@ function renderAll(){
   renderInsights();
   tabById(activeTab).render();
   renderData();
-  cpRender();
 }
 function renderCurrent(){
   stopRoll();
