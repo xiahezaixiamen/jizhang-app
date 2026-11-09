@@ -401,8 +401,14 @@ tr:last-child td{border-bottom:0;}
 .list-item.is-editable:active{background:rgba(0,102,204,.06);}
 .list-item:last-child{border-bottom:0;}
 .list-item .grow{flex:1;min-width:0;}
+/* 明细正文恒为一行：超出时末尾渐隐提示被截断，手指横向拖动可看全 */
+.list-item .grow>span{display:block;white-space:nowrap;overflow-x:auto;overflow-y:hidden;
+  scrollbar-width:none;-ms-overflow-style:none;-webkit-overflow-scrolling:touch;
+  -webkit-mask-image:linear-gradient(to right,#000 calc(100% - 20px),transparent);
+  mask-image:linear-gradient(to right,#000 calc(100% - 20px),transparent);}
+.list-item .grow>span::-webkit-scrollbar{display:none;}
 .list-item .note{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.list-item .amt{font-weight:600;font-variant-numeric:tabular-nums;}
+.list-item .amt{font-weight:600;font-variant-numeric:tabular-nums;flex:none;}
 
 .help{background:var(--primary-weak);border-radius:var(--radius-sm);
   padding:var(--sp-3) var(--sp-4);font-size:12.5px;color:#0060c8;
@@ -506,10 +512,10 @@ tr:last-child td{border-bottom:0;}
     text-align:left!important;white-space:normal!important;
     display:flex;gap:8px;flex-wrap:wrap;}
   #ov-accounts tr>td:nth-child(4) .btn{flex:1 1 0;text-align:center;}
-  /* 明细列表：日期栏收窄，文字允许折行 */
-  .list-item{gap:8px;padding:10px 4px;align-items:flex-start;}
-  .list-item>span:first-child{width:40px!important;font-size:12px;padding-top:2px;}
-  .list-item .grow span{font-size:13px;line-height:1.5;word-break:break-word;}
+  /* 明细列表：日期栏收窄；正文单行，超长横向滑动看全 */
+  .list-item{gap:8px;padding:10px 4px;}
+  .list-item>span:first-child{width:40px!important;font-size:12px;}
+  .list-item .grow span{font-size:13px;line-height:1.5;}
   .list-item .amt{font-size:13.5px;white-space:nowrap;}
   /* 洞察卡与卡片内边距 */
   .insight{padding:0;}
@@ -649,10 +655,6 @@ tr:last-child td{border-bottom:0;}
     </div>
     <div id="fixed-scroll" class="fx-scroll"></div>
     <div class="fx-dots" id="fixed-dots"></div>
-    <div id="fixed-skip" class="muted" style="display:none;margin-top:8px;font-size:12px">
-      已删除 <b id="fixed-skip-n">0</b> 笔自动支出
-      <button class="btn btn-sm" data-act="skip-list" style="margin-left:6px">查看 / 恢复</button>
-    </div>
   </div>
 
   <div class="grid cards" id="led-metrics" style="margin-top:14px"></div>
@@ -849,7 +851,7 @@ tr:last-child td{border-bottom:0;}
   </div>
 </div>
 
-<script src="localdb.js?v=30"></script>
+<script src="localdb.js?v=31"></script>
 <script src="lib/chart.umd.min.js"></script>
 <script>
 if (typeof Chart === 'undefined') {
@@ -2124,13 +2126,13 @@ function renderLedger(){
       catLabel = '余额调整';
     }
     var acc = accountById(t.accountId);
-    var sub = esc(catLabel + (acc && t.type !== 'transfer' ? ' · ' + acc.name : '') +
-      (t.note ? ' · ' + t.note : ''));
-    var badge = t.auto ? '<span class="tag" style="background:rgba(0,113,227,.1);color:#0060c8">自动</span> ' : '';
+    var plain = catLabel + (acc && t.type !== 'transfer' ? ' · ' + acc.name : '') +
+      (t.note ? ' · ' + t.note : '');
+    var sub = esc(plain);
     return '<div class="list-item' + (t.auto ? '' : ' is-editable') + '"' +
       (t.auto ? '' : ' role="button" tabindex="0" data-act="tx-edit" data-id="' + esc(t.id) + '"') + '>' +
       '<span class="muted" style="width:46px;flex:none">' + t.date.slice(5) + '</span>' +
-      '<span class="grow"><span>' + badge + sub + '</span></span>' +
+      '<span class="grow"><span title="' + esc(plain) + '">' + sub + '</span></span>' +
       '<span class="amt ' + (t.type === 'expense' ? 'neg' : (t.type === 'income' ? 'pos' : 'muted')) + '">' +
         (t.type === 'transfer' ? money(t.amount) : sign + num(t.amount)) + '</span>' +
       (t.auto
@@ -2810,50 +2812,9 @@ async function delAutoTx(ruleId, date){
   try {
     await api('/api/skips', {method:'POST', body:{ruleId: ruleId, date: date}});
     await reload();
-    showUndo('已删除 ' + (t ? txLabel(t) : '这笔自动支出') +
-      '（' + date.slice(5) + '）', async function(){
-      await api('/api/skips/' + encodeURIComponent(ruleId) + '/' + date, {method:'DELETE'});
-      await reload();
-    });
+    alert.success('已删除 ' + (t ? txLabel(t) : '这笔自动支出') +
+      '（' + date.slice(5) + '），规则本身不受影响。');
   } catch(e){ alert.error(e.message); }
-}
-
-async function restoreAutoTx(ruleId, date){
-  if (!ruleId || !date) return;
-  await api('/api/skips/' + encodeURIComponent(ruleId) + '/' + date, {method:'DELETE'});
-  await reload();
-  openSkipList();   /* 弹窗内容跟着刷新 */
-}
-
-/* 某条规则在指定日期生效的配置版本，用来还原「删掉的那笔」当时的金额 */
-function fixedVersionAt(ruleId, date){
-  var r = fixedRuleById(ruleId);
-  if (!r) return null;
-  var pick = null;
-  r.versions.forEach(function(v){ if (v.effectiveFrom <= date) pick = v; });
-  return pick || r.versions[0];
-}
-
-function openSkipList(){
-  var list = (db.skips || []).slice().sort(function(a, b){
-    return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0);
-  });
-  if (!list.length){
-    alert('没有已删除的自动支出。');
-    return;
-  }
-  var body = '<div class="note">这些是你在明细里删掉的单笔自动支出。' +
-    '自动支出按「规则 + 日历」派生，删除只影响那一天、那一条；点「恢复」会重新计入余额与统计。</div>' +
-    '<table><thead><tr><th>日期</th><th>规则</th><th class="num">操作</th></tr></thead><tbody>' +
-    list.map(function(s){
-      var v = fixedVersionAt(s.ruleId, s.date);
-      var label = v ? esc(v.category) + ' · ' + money(v.amount)
-                    : '<span class="muted">规则已删除</span>';
-      return '<tr><td>' + esc(s.date) + '</td><td>' + label + '</td>' +
-        '<td class="num"><button class="btn btn-sm" data-act="skip-restore" data-id="' +
-        esc(s.ruleId) + '" data-date="' + esc(s.date) + '">恢复</button></td></tr>';
-    }).join('') + '</tbody></table>';
-  openModal('已删除的自动支出', body, function(){ return true; }, '关闭', true);
 }
 
 /* ================= 交互：编辑流水 ================= */
@@ -3117,14 +3078,6 @@ function renderFixed(){
   var rules = fixedRules();
   var cnt = document.getElementById('fixed-count');
   if (cnt) cnt.textContent = rules.length ? '共 ' + rules.length + ' 条' : '';
-  /* 删过自动支出时给一个回收入口，避免「删了就找不回来」 */
-  var skipBox = document.getElementById('fixed-skip');
-  if (skipBox){
-    var skipN = (db.skips || []).length;
-    skipBox.style.display = skipN ? '' : 'none';
-    var skipNum = document.getElementById('fixed-skip-n');
-    if (skipNum) skipNum.textContent = String(skipN);
-  }
   if (!rules.length){
     box.innerHTML = '<div class="fx-empty" style="flex:1 1 100%">' +
       '未启用。点「+ 添加」设置一条自动扣款规则：通勤、午餐可每天或仅工作日扣，' +
@@ -3258,7 +3211,7 @@ function openFixedModal(ruleId){
     startField +
     '<span class="muted" id="fx-hint" style="font-size:11.5px;line-height:1.7;display:block"></span>' +
     '<span class="muted" style="font-size:11.5px;line-height:1.7;display:block;margin-top:6px">' +
-      '自动支出计入本月支出与分类统计、显示在明细里（标记「自动」，可逐条删除某一天），净资产随之减少。</span>';
+      '自动支出计入本月支出与分类统计、显示在明细里（可逐条删除某一天），净资产随之减少。</span>';
   openModal(isNew ? '添加固定支出规则' : '修改固定支出规则', body, async function(){
     var raw = String(document.getElementById('fx-amt').value).trim();
     if (raw === '' && isNew){ alert('请填写每次扣款金额'); return false; }
@@ -3738,10 +3691,6 @@ var ACTIONS = {
   'fixed-del': removeFixed,
   'auto-delete': function(id, el){
     return delAutoTx(id, el ? el.getAttribute('data-date') : '');
-  },
-  'skip-list': openSkipList,
-  'skip-restore': function(id, el){
-    return restoreAutoTx(id, el ? el.getAttribute('data-date') : '');
   }
 };
 function runAction(el){
