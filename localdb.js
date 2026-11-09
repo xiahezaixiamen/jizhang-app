@@ -12,9 +12,9 @@
   'use strict';
 
   var DB_NAME = 'jizhang';
-  var DB_VER = 1;
+  var DB_VER = 2;
   var MAX_AMOUNT = 1e12;
-  var STORES = ['accounts', 'transactions', 'dca', 'fixed', 'meta'];
+  var STORES = ['accounts', 'transactions', 'dca', 'fixed', 'skips', 'meta'];
 
   var ACCOUNT_TYPES = { deposit: 1, bank: 1, bankwealth: 1, fixed: 1, stock: 1, fund: 1, other: 1, liability: 1 };
   var DAILY_TYPES = { deposit: 1, bank: 1 };
@@ -95,6 +95,8 @@
         if (!d.objectStoreNames.contains('transactions')) d.createObjectStore('transactions', { keyPath: 'id' });
         if (!d.objectStoreNames.contains('dca')) d.createObjectStore('dca', { keyPath: 'id', autoIncrement: true });
         if (!d.objectStoreNames.contains('fixed')) d.createObjectStore('fixed', { keyPath: 'id', autoIncrement: true });
+        /* 已删除的单笔自动支出：key = ruleId + '|' + date，派生时跳过 */
+        if (!d.objectStoreNames.contains('skips')) d.createObjectStore('skips', { keyPath: 'k' });
         if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta', { keyPath: 'k' });
       };
       req.onsuccess = function () { db = req.result; resolve(db); };
@@ -194,7 +196,7 @@
     return out;
   }
 
-  function buildAuto(dcaVersions, fixedVersions, accounts, asOf) {
+  function buildAuto(dcaVersions, fixedVersions, accounts, asOf, skips) {
     var valid = {};
     accounts.forEach(function (a) { valid[a.id] = 1; });
 
@@ -229,6 +231,14 @@
       }));
     });
 
+    /* 手动删掉的单笔：按 (ruleId, date) 排除，与 app.py 的 auto_virtual 同口径 */
+    if (skips && skips.length) {
+      var skip = {};
+      skips.forEach(function (s) { skip[(s.ruleId || 'default') + '|' + s.date] = 1; });
+      txs = txs.filter(function (t) {
+        return !(t.autoKind === 'fixed' && skip[(t.ruleId || 'default') + '|' + t.date]);
+      });
+    }
     txs.sort(function (a, b) {
       if (a.date !== b.date) return a.date < b.date ? -1 : 1;
       return a.autoKind < b.autoKind ? -1 : (a.autoKind > b.autoKind ? 1 : 0);
@@ -240,7 +250,8 @@
 
   function snapshot() {
     return Promise.all([
-      readAll('accounts'), readAll('transactions'), readAll('dca'), readAll('fixed')
+      readAll('accounts'), readAll('transactions'), readAll('dca'), readAll('fixed'),
+      readAll('skips')
     ]).then(function (r) {
       var accounts = r[0].sort(function (a, b) { return (a._seq || 0) - (b._seq || 0); });
       var txs = r[1].sort(function (a, b) {
@@ -257,11 +268,18 @@
         if (a.effectiveFrom !== b.effectiveFrom) return a.effectiveFrom < b.effectiveFrom ? -1 : 1;
         return a.id - b.id;
       });
+      var skips = r[4].map(function (s) {
+        return { ruleId: s.ruleId || 'default', date: s.date };
+      }).sort(function (a, b) {
+        if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+        return a.ruleId < b.ruleId ? -1 : (a.ruleId > b.ruleId ? 1 : 0);
+      });
       bumpSeq(accounts);
       bumpSeq(txs);
       return {
         accounts: accounts, transactions: txs, dca: dca, fixed: fixed,
-        autoTransactions: buildAuto(dca, fixed, accounts, todayStr())
+        autoTransactions: buildAuto(dca, fixed, accounts, todayStr(), skips),
+        skips: skips
       };
     });
   }
@@ -612,16 +630,43 @@
   /* 删除一条规则的全部版本，不影响其他规则 */
   function deleteFixedRule(ruleId) {
     var rid = clip(ruleId, 40);
-    return readAll('fixed').then(function (rows) {
+    return Promise.all([readAll('fixed'), readAll('skips')]).then(function (r) {
       var ops = [];
-      rows.forEach(function (v) {
+      r[0].forEach(function (v) {
         if ((v.ruleId || 'default') === rid) {
           ops.push({ op: 'del', store: 'fixed', key: v.id });
         }
       });
       if (!ops.length) throw new Error('规则不存在或已被删除');
+      /* 规则没了，它名下的排除记录也就没有意义了 */
+      r[1].forEach(function (s) {
+        if ((s.ruleId || 'default') === rid) ops.push({ op: 'del', store: 'skips', key: s.k });
+      });
       return write(ops).then(function () { return { ok: true }; });
     });
+  }
+
+  /* 删掉某一天的某笔自动支出（等同 app.py 的 add_skip / delete_skip） */
+  function addSkip(d) {
+    d = d || {};
+    var rid = clip(d.ruleId || d.rule_id, 40) || 'default';
+    var ds = checkDate(d.date);
+    return readAll('fixed').then(function (rows) {
+      var has = false;
+      rows.forEach(function (v) { if ((v.ruleId || 'default') === rid) has = true; });
+      if (!has) throw new Error('规则不存在或已被删除');
+      return write([{
+        op: 'put', store: 'skips',
+        value: { k: rid + '|' + ds, ruleId: rid, date: ds }
+      }]).then(function () { return { ok: true, ruleId: rid, date: ds }; });
+    });
+  }
+
+  function removeSkip(ruleId, date) {
+    var rid = clip(ruleId, 40) || 'default';
+    var ds = checkDate(date);
+    return write([{ op: 'del', store: 'skips', key: rid + '|' + ds }])
+      .then(function () { return { ok: true }; });
   }
 
   function clearAll() {
@@ -629,7 +674,8 @@
       { op: 'clear', store: 'transactions' },
       { op: 'clear', store: 'accounts' },
       { op: 'clear', store: 'dca' },
-      { op: 'clear', store: 'fixed' }
+      { op: 'clear', store: 'fixed' },
+      { op: 'clear', store: 'skips' }
     ]).then(function () { seq = 0; return { ok: true }; });
   }
 
@@ -719,18 +765,31 @@
       });
     });
 
+    /* 已删除的自动支出也随备份一起搬家，否则换设备后删掉的那几笔会「复活」 */
+    var skipOps = [];
+    (d.skips || []).forEach(function (s) {
+      if (!s || typeof s !== 'object') return;
+      var rid = clip(s.ruleId || s.rule_id, 40) || 'default';
+      var ds;
+      try { ds = checkDate(s.date); } catch (e) { return; }
+      skipOps.push({
+        op: 'put', store: 'skips', value: { k: rid + '|' + ds, ruleId: rid, date: ds }
+      });
+    });
+
     return write([
       { op: 'clear', store: 'transactions' },
       { op: 'clear', store: 'accounts' },
       { op: 'clear', store: 'dca' },
-      { op: 'clear', store: 'fixed' }
+      { op: 'clear', store: 'fixed' },
+      { op: 'clear', store: 'skips' }
     ]).then(function () {
       seq = 0;
       accOps.forEach(function (o) {
         if (o.store === 'accounts') o.value._seq = nextSeq();
       });
       txOps.forEach(function (o) { o.value._seq = nextSeq(); });
-      return write(accOps.concat(txOps, cfgOps));
+      return write(accOps.concat(txOps, cfgOps, skipOps));
     }).then(function () {
       return { accounts: accOps.length, transactions: txOps.length };
     });
@@ -754,6 +813,7 @@
     if (method === 'POST' && path.split('?')[0] === '/api/clear') return clearAll();
     if (method === 'POST' && path.split('?')[0] === '/api/dca') return saveDca(body);
     if (method === 'POST' && path.split('?')[0] === '/api/fixed') return saveFixed(body);
+    if (method === 'POST' && path.split('?')[0] === '/api/skips') return addSkip(body);
 
     if (method === 'PUT' && parts.length === 3 && parts[1] === 'accounts') {
       return updateAccount(parts[2], body);
@@ -766,6 +826,9 @@
     }
     if (method === 'DELETE' && parts.length === 3 && parts[1] === 'transactions') {
       return deleteTransaction(parts[2]);
+    }
+    if (method === 'DELETE' && parts.length === 4 && parts[1] === 'skips') {
+      return removeSkip(decodeURIComponent(parts[2]), parts[3]);
     }
     if (method === 'DELETE' && parts.length === 2 && parts[1] === 'dca') {
       return write([{ op: 'clear', store: 'dca' }]).then(function () { return { ok: true }; });

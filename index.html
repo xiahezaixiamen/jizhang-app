@@ -511,8 +511,6 @@ tr:last-child td{border-bottom:0;}
   .list-item>span:first-child{width:40px!important;font-size:12px;padding-top:2px;}
   .list-item .grow span{font-size:13px;line-height:1.5;word-break:break-word;}
   .list-item .amt{font-size:13.5px;white-space:nowrap;}
-  /* 「规则生成」在窄屏挤掉正文、导致「支出」被拆成两行，隐藏（「自动」标签已表达同义） */
-  #led-list .list-item>span[style*="nowrap"]{display:none;}
   /* 洞察卡与卡片内边距 */
   .insight{padding:0;}
   .insight-item{padding:10px 12px;}
@@ -651,6 +649,10 @@ tr:last-child td{border-bottom:0;}
     </div>
     <div id="fixed-scroll" class="fx-scroll"></div>
     <div class="fx-dots" id="fixed-dots"></div>
+    <div id="fixed-skip" class="muted" style="display:none;margin-top:8px;font-size:12px">
+      已删除 <b id="fixed-skip-n">0</b> 笔自动支出
+      <button class="btn btn-sm" data-act="skip-list" style="margin-left:6px">查看 / 恢复</button>
+    </div>
   </div>
 
   <div class="grid cards" id="led-metrics" style="margin-top:14px"></div>
@@ -847,7 +849,7 @@ tr:last-child td{border-bottom:0;}
   </div>
 </div>
 
-<script src="localdb.js?v=29"></script>
+<script src="localdb.js?v=30"></script>
 <script src="lib/chart.umd.min.js"></script>
 <script>
 if (typeof Chart === 'undefined') {
@@ -919,8 +921,9 @@ var LS_KEY = 'pfa_data_v1';
 var privacyOn = true;
 var PRIVACY_MASK = '••••';
 
-/* autoTx = 每日定投的虚拟流水（后端按日历派生，不入明细/收支/导出） */
-var db = {accounts:[], transactions:[], dca:[], fixed:[], autoTx:[]};
+/* autoTx = 每日定投的虚拟流水（后端按日历派生，不入明细/收支/导出）
+   skips = 手动删掉的单笔自动支出（ruleId + date），派生时跳过 */
+var db = {accounts:[], transactions:[], dca:[], fixed:[], autoTx:[], skips:[]};
 var txType = 'expense';
 var activeTab = 'overview';
 var lastAccountId = '';
@@ -1349,8 +1352,13 @@ function normalize(d){
       ruleId: t.ruleId || ''
     };
   });
+  /* 手动删除的自动支出：自动支出是按日历派生的，删不掉「那一天」本身，
+     只能记一条排除记录，重新派生时跳过它 */
+  var skips = (d.skips || []).map(function(s){
+    return {ruleId: s.ruleId || s.rule_id || 'default', date: s.date || ''};
+  }).filter(function(s){ return !!s.date; });
   return {accounts: accounts, transactions: transactions,
-          dca: dca, fixed: fixed, autoTx: autoTx};
+          dca: dca, fixed: fixed, autoTx: autoTx, skips: skips};
 }
 
 async function reload(){
@@ -2098,7 +2106,7 @@ function renderLedger(){
 
   /* 明细 */
   document.getElementById('led-month-label').textContent = month;
-  /* 自动固定支出显示在明细里，标「自动」且不可单条删除（由配置派生） */
+  /* 自动固定支出显示在明细里，标「自动」；单条删除写排除记录，规则本身不动 */
   var list = db.transactions.concat(autoTxOf(AUTO_KIND.FIXED))
     .filter(function(t){ return monthKey(t.date) === month; })
     .sort(function(x,y){ return x.date < y.date ? 1 : (x.date > y.date ? -1 : 0); });
@@ -2126,7 +2134,8 @@ function renderLedger(){
       '<span class="amt ' + (t.type === 'expense' ? 'neg' : (t.type === 'income' ? 'pos' : 'muted')) + '">' +
         (t.type === 'transfer' ? money(t.amount) : sign + num(t.amount)) + '</span>' +
       (t.auto
-        ? '<span class="muted" style="font-size:11px;white-space:nowrap">规则生成</span>'
+        ? '<button class="btn btn-sm" data-act="auto-delete" data-id="' + esc(t.ruleId || '') +
+            '" data-date="' + esc(t.date) + '">删</button>'
         : '<button class="btn btn-sm" data-act="tx-delete" data-id="' + esc(t.id) + '">删</button>') +
       '</div>';
   }).join('') : '<div class="empty">这个月还没有记录</div>';
@@ -2790,6 +2799,63 @@ async function delTx(id){
   } catch(e){ alert.error(e.message); }
 }
 
+/* ============ 删除单笔自动支出（规则派生，删的是「这一天的这笔」） ============ */
+/* 自动支出不落库，无法物理删除，只能记一条 (ruleId, date) 排除记录；
+   派生时跳过它，于是余额、明细、统计、导出会同时少掉这一笔。 */
+async function delAutoTx(ruleId, date){
+  if (!ruleId || !date) return;
+  var t = autoTxOf(AUTO_KIND.FIXED).filter(function(x){
+    return x.ruleId === ruleId && x.date === date;
+  })[0];
+  try {
+    await api('/api/skips', {method:'POST', body:{ruleId: ruleId, date: date}});
+    await reload();
+    showUndo('已删除 ' + (t ? txLabel(t) : '这笔自动支出') +
+      '（' + date.slice(5) + '）', async function(){
+      await api('/api/skips/' + encodeURIComponent(ruleId) + '/' + date, {method:'DELETE'});
+      await reload();
+    });
+  } catch(e){ alert.error(e.message); }
+}
+
+async function restoreAutoTx(ruleId, date){
+  if (!ruleId || !date) return;
+  await api('/api/skips/' + encodeURIComponent(ruleId) + '/' + date, {method:'DELETE'});
+  await reload();
+  openSkipList();   /* 弹窗内容跟着刷新 */
+}
+
+/* 某条规则在指定日期生效的配置版本，用来还原「删掉的那笔」当时的金额 */
+function fixedVersionAt(ruleId, date){
+  var r = fixedRuleById(ruleId);
+  if (!r) return null;
+  var pick = null;
+  r.versions.forEach(function(v){ if (v.effectiveFrom <= date) pick = v; });
+  return pick || r.versions[0];
+}
+
+function openSkipList(){
+  var list = (db.skips || []).slice().sort(function(a, b){
+    return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0);
+  });
+  if (!list.length){
+    alert('没有已删除的自动支出。');
+    return;
+  }
+  var body = '<div class="note">这些是你在明细里删掉的单笔自动支出。' +
+    '自动支出按「规则 + 日历」派生，删除只影响那一天、那一条；点「恢复」会重新计入余额与统计。</div>' +
+    '<table><thead><tr><th>日期</th><th>规则</th><th class="num">操作</th></tr></thead><tbody>' +
+    list.map(function(s){
+      var v = fixedVersionAt(s.ruleId, s.date);
+      var label = v ? esc(v.category) + ' · ' + money(v.amount)
+                    : '<span class="muted">规则已删除</span>';
+      return '<tr><td>' + esc(s.date) + '</td><td>' + label + '</td>' +
+        '<td class="num"><button class="btn btn-sm" data-act="skip-restore" data-id="' +
+        esc(s.ruleId) + '" data-date="' + esc(s.date) + '">恢复</button></td></tr>';
+    }).join('') + '</tbody></table>';
+  openModal('已删除的自动支出', body, function(){ return true; }, '关闭', true);
+}
+
 /* ================= 交互：编辑流水 ================= */
 function catOptions(typ, sel){
   var cats = typ === 'income' ? IN_CATS : EX_CATS;
@@ -3051,6 +3117,14 @@ function renderFixed(){
   var rules = fixedRules();
   var cnt = document.getElementById('fixed-count');
   if (cnt) cnt.textContent = rules.length ? '共 ' + rules.length + ' 条' : '';
+  /* 删过自动支出时给一个回收入口，避免「删了就找不回来」 */
+  var skipBox = document.getElementById('fixed-skip');
+  if (skipBox){
+    var skipN = (db.skips || []).length;
+    skipBox.style.display = skipN ? '' : 'none';
+    var skipNum = document.getElementById('fixed-skip-n');
+    if (skipNum) skipNum.textContent = String(skipN);
+  }
   if (!rules.length){
     box.innerHTML = '<div class="fx-empty" style="flex:1 1 100%">' +
       '未启用。点「+ 添加」设置一条自动扣款规则：通勤、午餐可每天或仅工作日扣，' +
@@ -3184,7 +3258,7 @@ function openFixedModal(ruleId){
     startField +
     '<span class="muted" id="fx-hint" style="font-size:11.5px;line-height:1.7;display:block"></span>' +
     '<span class="muted" style="font-size:11.5px;line-height:1.7;display:block;margin-top:6px">' +
-      '自动支出计入本月支出与分类统计、显示在明细里（标记「自动」，不可单条删除），净资产随之减少。</span>';
+      '自动支出计入本月支出与分类统计、显示在明细里（标记「自动」，可逐条删除某一天），净资产随之减少。</span>';
   openModal(isNew ? '添加固定支出规则' : '修改固定支出规则', body, async function(){
     var raw = String(document.getElementById('fx-amt').value).trim();
     if (raw === '' && isNew){ alert('请填写每次扣款金额'); return false; }
@@ -3467,9 +3541,9 @@ function shareOrDownload(name, text, mime){
 }
 
 function exportJSON(){
-  var payload = {version: 4, exported_at: new Date().toISOString(),
+  var payload = {version: 5, exported_at: new Date().toISOString(),
     data: {accounts: db.accounts, transactions: db.transactions,
-           dca: db.dca, fixed: db.fixed}};
+           dca: db.dca, fixed: db.fixed, skips: db.skips || []}};
   shareOrDownload('记账备份-' + today() + '.json', JSON.stringify(payload, null, 2));
 }
 
@@ -3661,14 +3735,22 @@ var ACTIONS = {
   'fixed-add': function(){ openFixedModal(); },
   'fixed-edit': openFixedModal,
   'fixed-toggle': toggleFixed,
-  'fixed-del': removeFixed
+  'fixed-del': removeFixed,
+  'auto-delete': function(id, el){
+    return delAutoTx(id, el ? el.getAttribute('data-date') : '');
+  },
+  'skip-list': openSkipList,
+  'skip-restore': function(id, el){
+    return restoreAutoTx(id, el ? el.getAttribute('data-date') : '');
+  }
 };
 function runAction(el){
   var fn = ACTIONS[el.getAttribute('data-act')];
   if (!fn) return;
   var id = el.getAttribute('data-id');
-  /* 内联 onclick 已移除，这里补上 Promise 返回值的错误出口 */
-  var r = id == null ? fn() : fn(id);
+  /* 内联 onclick 已移除，这里补上 Promise 返回值的错误出口。
+     第二个参数传元素本身：删除单笔自动支出要同时拿到 ruleId 和日期。 */
+  var r = fn(id, el);
   if (r && r.catch) r.catch(function(e){ alert.error((e && e.message) || '操作失败'); });
 }
 document.addEventListener('click', function(e){
