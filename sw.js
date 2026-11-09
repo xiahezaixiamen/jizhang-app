@@ -1,26 +1,30 @@
 /* 离线缓存：让「添加到主屏幕」之后断网也能打开。
    数据本身在 IndexedDB，与本缓存无关；这里只缓存界面外壳。
    改动界面后把 CACHE 版本号 +1，手机下次联网打开时会自动换新。 */
-const CACHE = 'jizhang-v28';
+const CACHE = 'jizhang-v29';
 /* 版本号同时用于给 localdb.js 加查询串：HTML 里的引用一变，
    旧 Service Worker 的缓存必然 miss，从而强制回源拿新代码。
-   否则「缓存优先」会让改过的 JS 一直不生效。 */
-const VER = CACHE.replace('jizhang-', '');
-const ASSETS = [
+   必须与 build_mobile.py::sw_ver() 提取的纯数字一致（?v=29），
+   否则预缓存的是一个页面永远不会请求的无效 key。 */
+const VER = CACHE.replace('jizhang-v', '');
+/* 只预缓存「离线打开必需」的最小集：导航壳 + 数据层。
+   图表库、图标、manifest 在首次联网使用时由下方 fetch 分支按需 cache.put，
+   联网打开一次后离线同样完整可用。换代下载量从约 630KB 降到约 210KB，
+   且不再与首屏导航请求抢带宽。 */
+const CORE_ASSETS = [
   './',
-  './index.html',
-  './localdb.js?v=' + VER,
-  './manifest.webmanifest',
-  './lib/chart.umd.min.js',
-  './icon-180.png',
-  './icon-512.png'
+  './localdb.js?v=' + VER
 ];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(
-    caches.open(CACHE)
-      .then(function (c) { return c.addAll(ASSETS); })
-      .then(function () { return self.skipWaiting(); })
+    caches.open(CACHE).then(function (c) {
+      /* 逐个写入并吞掉单个失败：addAll 是原子的，任一资源 404 或网络抖动
+         都会让整个 install 失败，下次打开又从头重装（表现为每次都卡）。 */
+      return Promise.all(CORE_ASSETS.map(function (url) {
+        return c.add(url).catch(function () { return null; });
+      }));
+    }).then(function () { return self.skipWaiting(); })
   );
 });
 
