@@ -193,12 +193,17 @@ canvas{max-width:100%;}
   font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;}
 .sal-axis .now{color:var(--primary);font-weight:600;}
 .sal-form>.field{flex:1 1 150px;min-width:0;}
-.sal-form>.field>input,.sal-form>.field>select{width:100%;min-width:0;}
+.sal-form>.field>input,.sal-form>.field>select{
+  width:100%;max-width:100%;min-width:0;box-sizing:border-box;}
 @media (max-width:640px){
   .sal-hero{padding:18px 16px;}
   .sal-big{letter-spacing:-1.1px;}
-  /* 提高特异性，避免被后面「移动端」段里的 .toolbar .field 覆盖 */
-  .toolbar.sal-form>.field{flex:1 1 calc(50% - 6px);}
+  /* 手机端设置项一律单列：iOS 的 time(带秒)/select 原生控件有不可压缩的
+     固有宽度，两列各 ~154px 时调完时间会把相邻控件挤到互相遮盖。
+     grid + minmax(0,1fr) 禁止列被内容撑开，控件再独占整行。 */
+  .toolbar.sal-form{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;}
+  .toolbar.sal-form>.field{width:100%;min-width:0;}
+  .sal-form>.field>input,.sal-form>.field>select{max-width:100%;}
 }
 
 /* 指标卡 */
@@ -426,8 +431,9 @@ tr:last-child td{border-bottom:0;}
   .wrap{padding:0 14px 60px;}
   .head-inner{display:block;padding:10px 52px 10px 14px;}
   .eye-btn{right:14px;}
-  nav{display:grid;grid-template-columns:repeat(5,1fr);gap:2px;}
-  nav button{padding:6px 0;text-align:center;font-size:12.5px;}
+  nav{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;}
+  nav button{min-width:0;padding:6px 0;text-align:center;font-size:12.5px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .card,.metric{padding:var(--sp-4);}
   .metric .val{font-size:var(--fs-metric-sm);letter-spacing:-.4px;}
   .metric .foot{font-size:var(--fs-micro);}
@@ -834,7 +840,7 @@ tr:last-child td{border-bottom:0;}
   </div>
 </div>
 
-<script src="localdb.js?v=26"></script>
+<script src="localdb.js?v=27"></script>
 <script src="lib/chart.umd.min.js"></script>
 <script>
 if (typeof Chart === 'undefined') {
