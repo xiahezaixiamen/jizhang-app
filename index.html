@@ -167,6 +167,40 @@ canvas{max-width:100%;}
   #fixed-count{display:none;}
 }
 
+/* ===== 算薪：实时收入计数器 ===== */
+.sal-hero{background:linear-gradient(135deg,#fff 0%,#f6faff 100%);
+  border:1px solid var(--hair);border-radius:var(--radius);
+  padding:var(--sp-6) 24px;box-shadow:var(--shadow-card);}
+.sal-hero-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.sal-hero-top .tag{margin-left:auto;}
+.sal-label{margin-top:12px;font-size:12.5px;color:var(--muted);}
+.sal-big{font-size:clamp(38px,8.6vw,66px);line-height:1.14;font-weight:650;
+  letter-spacing:-1.8px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.sal-rate{font-size:13px;color:var(--primary);font-weight:600;min-height:20px;
+  font-variant-numeric:tabular-nums;}
+.sal-track{position:relative;height:12px;border-radius:999px;
+  background:var(--fill);margin-top:22px;}
+.sal-fill{position:absolute;left:0;top:0;bottom:0;border-radius:999px;
+  background:linear-gradient(90deg,#5aa9ff,var(--primary));
+  transition:width .12s linear;}
+.sal-lunch{position:absolute;top:0;bottom:0;border-radius:2px;
+  background:repeating-linear-gradient(-45deg,rgba(0,0,0,.12),rgba(0,0,0,.12) 4px,
+    rgba(0,0,0,.04) 4px,rgba(0,0,0,.04) 8px);}
+.sal-pin{position:absolute;top:-5px;width:4px;height:22px;border-radius:2px;
+  background:var(--primary);box-shadow:0 0 0 3px rgba(0,102,204,.14);
+  transform:translateX(-2px);transition:left .12s linear;}
+.sal-axis{display:flex;justify-content:space-between;margin-top:9px;
+  font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;}
+.sal-axis .now{color:var(--primary);font-weight:600;}
+.sal-form>.field{flex:1 1 150px;min-width:0;}
+.sal-form>.field>input,.sal-form>.field>select{width:100%;min-width:0;}
+@media (max-width:640px){
+  .sal-hero{padding:18px 16px;}
+  .sal-big{letter-spacing:-1.1px;}
+  /* 提高特异性，避免被后面「移动端」段里的 .toolbar .field 覆盖 */
+  .toolbar.sal-form>.field{flex:1 1 calc(50% - 6px);}
+}
+
 /* 指标卡 */
 .metric{background:var(--card);border-radius:var(--radius);padding:var(--sp-4) 18px;
   box-shadow:var(--shadow-card);}
@@ -392,7 +426,7 @@ tr:last-child td{border-bottom:0;}
   .wrap{padding:0 14px 60px;}
   .head-inner{display:block;padding:10px 52px 10px 14px;}
   .eye-btn{right:14px;}
-  nav{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;}
+  nav{display:grid;grid-template-columns:repeat(5,1fr);gap:2px;}
   nav button{padding:6px 0;text-align:center;font-size:12.5px;}
   .card,.metric{padding:var(--sp-4);}
   .metric .val{font-size:var(--fs-metric-sm);letter-spacing:-.4px;}
@@ -685,6 +719,64 @@ tr:last-child td{border-bottom:0;}
   </div>
 </section>
 
+<section id="tab-salary" class="tab">
+  <div class="sal-hero">
+    <div class="sal-hero-top">
+      <span class="muted" id="sal-date"></span>
+      <span class="tag" id="sal-state">—</span>
+    </div>
+    <div class="sal-label">今日已赚</div>
+    <div class="sal-big" id="sal-now">••••</div>
+    <div class="sal-rate" id="sal-rate"></div>
+    <div class="sal-track">
+      <div class="sal-fill" id="sal-fill"></div>
+      <div class="sal-lunch" id="sal-lunch" style="display:none"></div>
+      <div class="sal-pin" id="sal-pin"></div>
+    </div>
+    <div class="sal-axis">
+      <span id="sal-t-start">--:--</span>
+      <span class="now" id="sal-t-now">--:--:--</span>
+      <span id="sal-t-end">--:--</span>
+    </div>
+  </div>
+
+  <div class="grid cards" id="sal-metrics" style="margin-top:14px"></div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="card-head">
+      <h3>算薪设置</h3>
+      <span style="flex:1"></span>
+      <span class="muted" id="sal-formula" style="font-size:11.5px"></span>
+    </div>
+    <div class="toolbar sal-form">
+      <div class="field"><label for="sal-monthly">月薪 (¥)</label>
+        <input type="number" id="sal-monthly" min="0" step="100" inputmode="decimal"></div>
+      <div class="field"><label for="sal-days-mode">月工作天数</label>
+        <select id="sal-days-mode">
+          <option value="auto">按当月工作日自动算</option>
+          <option value="manual">手动指定</option>
+        </select></div>
+      <div class="field" id="sal-days-field" style="display:none"><label for="sal-days">天数</label>
+        <input type="number" id="sal-days" min="1" max="31" step="0.5" inputmode="decimal"></div>
+      <div class="field"><label for="sal-start">上班时间</label>
+        <input type="time" id="sal-start" step="1"></div>
+      <div class="field"><label for="sal-end">下班时间</label>
+        <input type="time" id="sal-end" step="1"></div>
+      <div class="field"><label for="sal-lunch-start">午休开始</label>
+        <input type="time" id="sal-lunch-start" step="1"></div>
+      <div class="field"><label for="sal-lunch-min">午休分钟</label>
+        <input type="number" id="sal-lunch-min" min="0" max="480" step="5" inputmode="numeric"></div>
+      <div class="field"><label for="sal-today">今天</label>
+        <select id="sal-today">
+          <option value="auto">按日历（周一至周五）</option>
+          <option value="work">强制算上班</option>
+          <option value="off">强制算休息</option>
+        </select></div>
+    </div>
+    <p class="muted" style="margin:10px 0 0" id="sal-note"></p>
+  </div>
+</section>
+
 <section id="tab-data" class="tab">
   <div class="card">
     <h3>数据说明</h3>
@@ -742,7 +834,7 @@ tr:last-child td{border-bottom:0;}
   </div>
 </div>
 
-<script src="localdb.js?v=25"></script>
+<script src="localdb.js?v=26"></script>
 <script src="lib/chart.umd.min.js"></script>
 <script>
 if (typeof Chart === 'undefined') {
@@ -784,6 +876,7 @@ var TABS = [
   {id:'overview', label:'资产', render:function(){ renderOverview(); }},
   {id:'ledger',   label:'记账', render:function(){ renderLedger(); }},
   {id:'analysis', label:'分析', render:function(){ renderAnalysis(); }},
+  {id:'salary',   label:'算薪', render:function(){ renderSalary(); }},
   {id:'data',     label:'数据', render:function(){ renderData(); }}
 ];
 function tabById(id){
@@ -2358,6 +2451,241 @@ function renderCurrent(){
   tabById(activeTab).render();
 }
 
+/* ================= 渲染：算薪（实时收入计数器） ================= */
+/* 口径：月薪 ÷ 月工作天数 = 日薪；日薪 ÷ 每日净工作秒数 = 秒薪；
+   今日已赚按「上班 → 当前」的净工作秒数匀速累加，午休/下班后不再增长。
+   配置只存本机 localStorage，不进后端、不进备份文件。 */
+var SAL_KEY = 'jz_salary_v1', SAL_TODAY_KEY = 'jz_salary_today_v1';
+var SAL_DEFAULT = {monthly:12000, daysMode:'auto', days:21.75,
+  start:'09:00:00', end:'18:00:00', lunchStart:'12:00:00', lunchMin:60};
+var salCfg = null, salTimer = 0;
+
+function salNum(v, lo, hi, def){
+  var n = parseFloat(v);
+  return isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def;
+}
+function salTime(v, def){
+  var m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(String(v == null ? '' : v));
+  if (!m) return def;
+  var h = +m[1], mi = +m[2], s = +(m[3] || 0);
+  if (h > 23 || mi > 59 || s > 59) return def;
+  return h * 3600 + mi * 60 + s;
+}
+function salClock(sec, withSec){
+  sec = Math.max(0, Math.floor(sec || 0));
+  var p = function(n){ return n < 10 ? '0' + n : '' + n; };
+  return p(Math.floor(sec / 3600) % 24) + ':' + p(Math.floor(sec / 60) % 60) +
+    (withSec ? ':' + p(sec % 60) : '');
+}
+function salDur(sec){
+  sec = Math.max(0, Math.floor(sec || 0));
+  var p = function(n){ return n < 10 ? '0' + n : '' + n; };
+  return p(Math.floor(sec / 3600)) + ':' + p(Math.floor(sec / 60) % 60) + ':' + p(sec % 60);
+}
+function salNormTime(v, def){
+  return salClock(salTime(v, salTime(def, 0)), true);
+}
+function salLoad(){
+  var c = {};
+  try { c = JSON.parse(lsGet(SAL_KEY) || '{}') || {}; } catch(e){ c = {}; }
+  var start = salNormTime(c.start, SAL_DEFAULT.start);
+  var end = salNormTime(c.end, SAL_DEFAULT.end);
+  if (salTime(end, 0) <= salTime(start, 0)){
+    start = SAL_DEFAULT.start; end = SAL_DEFAULT.end;
+  }
+  return {
+    monthly: salNum(c.monthly, 0, 1e9, SAL_DEFAULT.monthly),
+    daysMode: c.daysMode === 'manual' ? 'manual' : 'auto',
+    days: salNum(c.days, 0.5, 31, SAL_DEFAULT.days),
+    start: start, end: end,
+    lunchStart: salNormTime(c.lunchStart, SAL_DEFAULT.lunchStart),
+    lunchMin: Math.round(salNum(c.lunchMin, 0, 480, SAL_DEFAULT.lunchMin))
+  };
+}
+function salSave(c){ lsSet(SAL_KEY, JSON.stringify(c)); }
+function salTodayMode(){
+  try {
+    var v = JSON.parse(lsGet(SAL_TODAY_KEY) || 'null');
+    if (v && v.date === today() && ['auto','work','off'].indexOf(v.mode) >= 0) return v.mode;
+  } catch(e){}
+  return 'auto';
+}
+function salSetToday(mode){ lsSet(SAL_TODAY_KEY, JSON.stringify({date:today(), mode:mode})); }
+function salWorkdays(y, m){
+  var n = 0, last = new Date(y, m, 0).getDate(), d = new Date(y, m - 1, 1);
+  for (var i = 1; i <= last; i++){ d.setDate(i); if (d.getDay() >= 1 && d.getDay() <= 5) n++; }
+  return n;
+}
+function salPastWorkdays(y, m, day){
+  var n = 0;
+  for (var i = 1; i < day; i++){
+    var w = new Date(y, m - 1, i).getDay();
+    if (w >= 1 && w <= 5) n++;
+  }
+  return n;
+}
+function salOverlap(a1, a2, b1, b2){
+  var lo = Math.max(a1, b1), hi = Math.min(a2, b2);
+  return hi > lo ? hi - lo : 0;
+}
+/* 纯函数：给定配置与当前时刻算出全部展示数据，便于脱离 DOM 验证 */
+function salCalc(c, now, todayMode){
+  var d = now instanceof Date ? now : new Date(now);
+  var y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate(), w = d.getDay();
+  var workdays = c.daysMode === 'manual' ? c.days : salWorkdays(y, m);
+  var isWork = todayMode === 'work' ? true
+             : todayMode === 'off' ? false : (w >= 1 && w <= 5);
+  var s = salTime(c.start, 0), e = salTime(c.end, 0);
+  var ls = salTime(c.lunchStart, 0), le = ls + c.lunchMin * 60;
+  var lunchIn = salOverlap(s, e, ls, le);
+  var span = Math.max(1, (e - s) - lunchIn);
+  var daily = workdays > 0 ? c.monthly / workdays : 0;
+  var perSec = daily / span;
+  var nowSec = d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds() +
+    d.getMilliseconds() / 1000;
+  var worked = Math.max(0, Math.min(nowSec, e) - s) -
+    salOverlap(s, Math.max(s, Math.min(nowSec, e)), ls, le);
+  var elapsed = Math.min(span, Math.max(0, worked));
+  var clockProgress = Math.max(0, Math.min(1, (nowSec - s) / Math.max(1, e - s)));
+  var inLunch = c.lunchMin > 0 && nowSec >= ls && nowSec < le && nowSec > s && nowSec < e;
+  var state = !isWork ? 'rest'
+    : nowSec < s ? 'before'
+    : nowSec >= e ? 'done'
+    : inLunch ? 'lunch' : 'work';
+  var earned = isWork ? perSec * elapsed : 0;
+  var past = salPastWorkdays(y, m, day);
+  return {
+    y:y, m:m, day:day, weekday:w, workdays:workdays, isWork:isWork, state:state,
+    start:s, end:e, lunchStart:ls, lunchEnd:le, lunchIn:lunchIn, span:span,
+    daily:daily, perSec:perSec, elapsed:elapsed, earned:earned,
+    progress: isWork ? elapsed / span : 0, clockProgress:clockProgress,
+    nowSec:nowSec, past:past, monthEarned: past * daily + earned
+  };
+}
+function salMoney(v){
+  if (privacyOn) return PRIVACY_MASK;
+  var s = (Math.round((v || 0) * 10000) / 10000).toFixed(4).split('.');
+  return '¥' + s[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + s[1];
+}
+function salSet(id, text){ var el = document.getElementById(id); if (el) el.textContent = text; }
+function salFillForm(c, tm){
+  var ids = {'sal-monthly':c.monthly, 'sal-days-mode':c.daysMode, 'sal-days':c.days,
+    'sal-start':c.start, 'sal-end':c.end, 'sal-lunch-start':c.lunchStart,
+    'sal-lunch-min':c.lunchMin, 'sal-today':tm};
+  Object.keys(ids).forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) el.value = ids[id];
+  });
+  var f = document.getElementById('sal-days-field');
+  if (f) f.style.display = c.daysMode === 'manual' ? '' : 'none';
+}
+function salReadForm(){
+  var v = function(id){ var el = document.getElementById(id); return el ? el.value : ''; };
+  var c = {
+    monthly: salNum(v('sal-monthly'), 0, 1e9, SAL_DEFAULT.monthly),
+    daysMode: v('sal-days-mode') === 'manual' ? 'manual' : 'auto',
+    days: salNum(v('sal-days'), 0.5, 31, SAL_DEFAULT.days),
+    start: salNormTime(v('sal-start'), SAL_DEFAULT.start),
+    end: salNormTime(v('sal-end'), SAL_DEFAULT.end),
+    lunchStart: salNormTime(v('sal-lunch-start'), SAL_DEFAULT.lunchStart),
+    lunchMin: Math.round(salNum(v('sal-lunch-min'), 0, 480, SAL_DEFAULT.lunchMin))
+  };
+  if (salTime(c.end, 0) <= salTime(c.start, 0)) c.end = '23:59:59';
+  return c;
+}
+function salOnSettingChange(){
+  salCfg = salReadForm();
+  salSave(salCfg);
+  var t = document.getElementById('sal-today');
+  salSetToday(t ? t.value : 'auto');
+  var f = document.getElementById('sal-days-field');
+  var mode = document.getElementById('sal-days-mode');
+  if (f && mode) f.style.display = mode.value === 'manual' ? '' : 'none';
+  salStaticText();
+  salPaint();
+}
+function salMetricsSkeleton(){
+  var box = document.getElementById('sal-metrics');
+  if (!box) return;
+  box.innerHTML =
+    '<div class="metric"><div class="lab">每秒进账</div><div class="val" id="sal-m-rate"></div><div class="foot">工作时间内匀速增长</div></div>' +
+    '<div class="metric"><div class="lab">今日目标</div><div class="val" id="sal-m-daily"></div><div class="foot" id="sal-m-daily-foot"></div></div>' +
+    '<div class="metric"><div class="lab">本月已赚</div><div class="val" id="sal-m-month"></div><div class="foot" id="sal-m-month-foot"></div></div>' +
+    '<div class="metric"><div class="lab">距下班</div><div class="val" id="sal-m-left"></div><div class="foot" id="sal-m-left-foot"></div></div>';
+}
+function salStaticText(){
+  if (!salCfg) salCfg = salLoad();
+  var r = salCalc(salCfg, new Date(), salTodayMode());
+  salSet('sal-formula', privacyOn ? '金额已隐藏，点右上角眼睛显示'
+    : '¥' + salCfg.monthly.toLocaleString('zh-CN') + ' ÷ ' + r.workdays + ' 天 ÷ ' +
+      (r.span / 3600).toFixed(2) + ' 小时 = ' + salMoney(r.perSec) + '/秒');
+  salSet('sal-note', '日薪 = 月薪 ÷ 月工作天数；秒薪 = 日薪 ÷ 净工作秒数（自动扣除落在班次内的午休）。' +
+    '今日已赚从上班时刻按秒累加，午休与下班后停止增长；本月已赚按日历工作日估算。' +
+    '设置只保存在这台设备的浏览器里，不进账本备份。');
+}
+var SAL_STATES = {
+  rest:   ['今天休息',  'background:var(--fill);color:var(--muted)'],
+  before: ['等待开工',  'background:var(--primary-weak);color:var(--primary)'],
+  work:   ['搬砖中',    'background:var(--green-weak);color:#248a3d'],
+  lunch:  ['午休中',    'background:rgba(255,149,0,.14);color:#b26a00'],
+  done:   ['今日已收工','background:var(--fill);color:var(--muted)']
+};
+function salPaint(){
+  if (!document.getElementById('sal-now')) return;
+  if (!salCfg) salCfg = salLoad();
+  var r = salCalc(salCfg, new Date(), salTodayMode());
+  salSet('sal-now', salMoney(r.earned));
+  salSet('sal-date', r.y + '年' + r.m + '月' + r.day + '日 · 周' +
+    '日一二三四五六'.charAt(r.weekday) + ' · 本月 ' + r.workdays + ' 个工作日');
+  var st = SAL_STATES[r.state] || SAL_STATES.rest;
+  var tag = document.getElementById('sal-state');
+  if (tag){ tag.textContent = st[0]; tag.setAttribute('style', st[1]); }
+  var rate;
+  if (r.state === 'rest') rate = '今天不计费，挂着也不会涨';
+  else if (privacyOn) rate = '金额已隐藏 · 点右上角眼睛显示';
+  else rate = '每秒 +' + salMoney(r.perSec);
+  if (r.state === 'before') rate += ' · 距开工 ' + salDur(r.start - r.nowSec);
+  else if (r.state !== 'rest') rate += ' · 今日进度 ' + (r.progress * 100).toFixed(1) + '%';
+  salSet('sal-rate', rate);
+
+  var fill = document.getElementById('sal-fill'), pin = document.getElementById('sal-pin');
+  var lunch = document.getElementById('sal-lunch');
+  if (fill) fill.style.width = (r.progress * 100).toFixed(2) + '%';
+  if (pin) pin.style.left = (r.clockProgress * 100).toFixed(2) + '%';
+  if (lunch){
+    var lo = Math.max(r.start, r.lunchStart), hi = Math.min(r.end, r.lunchEnd);
+    if (hi > lo){
+      lunch.style.display = '';
+      lunch.style.left = ((lo - r.start) / Math.max(1, r.end - r.start) * 100).toFixed(2) + '%';
+      lunch.style.width = ((hi - lo) / Math.max(1, r.end - r.start) * 100).toFixed(2) + '%';
+    } else lunch.style.display = 'none';
+  }
+  salSet('sal-t-start', salClock(r.start, false));
+  salSet('sal-t-now', salClock(r.nowSec, true));
+  salSet('sal-t-end', salClock(r.end, false));
+
+  salSet('sal-m-rate', salMoney(r.perSec));
+  salSet('sal-m-daily', money(r.daily));
+  salSet('sal-m-daily-foot', '月薪 ÷ ' + r.workdays + ' 个工作日');
+  salSet('sal-m-month', money(r.monthEarned));
+  salSet('sal-m-month-foot', '已过 ' + r.past + ' 个工作日 + 今日');
+  salSet('sal-m-left', (r.state === 'work' || r.state === 'lunch')
+    ? salDur(r.end - r.nowSec) : '—');
+  salSet('sal-m-left-foot', '下班 ' + salClock(r.end, false));
+}
+function stopSalary(){
+  if (salTimer){ clearInterval(salTimer); salTimer = 0; }
+}
+function renderSalary(){
+  stopSalary();
+  salCfg = salLoad();
+  salFillForm(salCfg, salTodayMode());
+  salMetricsSkeleton();
+  salStaticText();
+  salPaint();
+  salTimer = setInterval(salPaint, 200);
+}
+
 /* ================= 交互：记账 ================= */
 async function submitTx(ev){
   ev.preventDefault();
@@ -3354,7 +3682,15 @@ document.getElementById('nav').addEventListener('click', function(e){
   Array.prototype.forEach.call(document.querySelectorAll('section.tab'), function(s){
     s.classList.toggle('show', s.id === 'tab-' + activeTab);
   });
+  stopSalary();
   renderCurrent();
+});
+
+/* 算薪设置：字段变更即保存并重绘。表单值只写回 value / textContent，不拼进 HTML。 */
+document.addEventListener('change', function(e){
+  var id = (e.target && e.target.id) || '';
+  if (!/^sal-(monthly|days|days-mode|start|end|lunch-start|lunch-min|today)$/.test(id)) return;
+  salOnSettingChange();
 });
 
 document.getElementById('tx-kind').addEventListener('click', function(e){
