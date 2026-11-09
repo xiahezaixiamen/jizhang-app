@@ -118,12 +118,14 @@ canvas{max-width:100%;}
    导致 640px 以下输入框比容器还宽几个像素 */
 .cp-bar .field>input{width:150px;}
 .cp-bar .field>select{width:82px;}
-/* 自定义周期：窄屏把日期控件分成两列，翻页按钮整组占一行 */
+/* 自定义周期：窄屏把日期控件分成两列。翻页按钮跟在「发薪日」后面、贴右侧，
+   宽度固定在 150px（与桌面端同一尺寸），不再随行宽被拉伸；
+   行内放不下时整体换行并右对齐，两个按钮始终同尺寸同一行。 */
 @media (max-width:640px){
   .cp-bar{gap:10px;}
   .cp-bar .field{flex:1 1 calc(50% - 5px);min-width:0;}
   .cp-bar .field>input,.cp-bar .field>select{width:100%;min-width:0;}
-  .cp-nav{flex:1 1 100%;}
+  .cp-nav{flex:0 1 calc(50% - 5px);max-width:170px;min-width:0;margin-left:auto;}
 }
 
 /* 卡片：Apple 式发丝边界 + 极轻投影，层次靠表面色差而非重阴影 */
