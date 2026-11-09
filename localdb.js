@@ -251,12 +251,14 @@
     txs.forEach(function (t) {
       if (t.date > asOf) return;
       var a = Number(t.amount) || 0;
-      if (t.type === 'income') bal += a;
-      else if (t.type === 'expense') bal -= a;
-      else if (t.type === 'adjust') bal += a;
-      else if (t.type === 'transfer') {
+      if (t.type === 'transfer') {
         if (t.accountId === aid) bal -= a;
         if (t.toAccountId === aid) bal += a;
+      } else if (t.accountId === aid) {
+        /* 收支/调整只作用于自己的账户。后端用 SQL 的 account_id 过滤，
+           这里必须显式判断，否则会把全部账户的流水算到当前账户上。 */
+        if (t.type === 'income' || t.type === 'adjust') bal += a;
+        else if (t.type === 'expense') bal -= a;
       }
     });
     virtuals.forEach(function (v) {
