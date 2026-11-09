@@ -136,6 +136,37 @@ canvas{max-width:100%;}
 .card-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:var(--sp-3);}
 .card-head h3{margin:0;}
 
+/* 每日固定支出：多条规则用横向滑动卡片承载，只靠手动左右滑动，不提供翻页按钮。
+   一条规则一张卡，卡片宽度固定但受视口约束，露出下一张边缘作为可滑动提示。 */
+#fixed-card .card-head{flex-wrap:nowrap;gap:8px;}
+#fixed-card .card-head h3{white-space:nowrap;}
+#fixed-count{white-space:nowrap;flex:none;}
+.fx-scroll{display:flex;gap:12px;overflow-x:auto;overscroll-behavior-x:contain;
+  scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;
+  scrollbar-width:none;padding:2px 2px 6px;margin:0 -2px;}
+.fx-scroll::-webkit-scrollbar{display:none;}
+.fx-item{flex:0 0 300px;max-width:84vw;scroll-snap-align:start;
+  background:var(--fill);border:1px solid var(--hair);
+  border-radius:var(--radius-sm);padding:12px 14px;
+  display:flex;flex-direction:column;gap:7px;min-width:0;}
+.fx-item .fx-top{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
+.fx-item .fx-amt{font-size:18px;font-weight:600;letter-spacing:-.3px;
+  font-variant-numeric:tabular-nums;}
+.fx-item .fx-meta{font-size:12px;color:var(--muted);line-height:1.55;}
+.fx-item .fx-foot{display:flex;gap:8px;margin-top:2px;}
+.fx-item .fx-foot .btn{flex:1 1 0;min-width:0;text-align:center;
+  padding-left:0;padding-right:0;}
+.fx-empty{background:var(--fill);border-radius:var(--radius-sm);
+  padding:12px 14px;color:var(--muted);font-size:12.5px;line-height:1.7;}
+.fx-dots{display:flex;justify-content:center;gap:6px;margin-top:8px;min-height:6px;}
+.fx-dots i{width:6px;height:6px;border-radius:50%;background:var(--hair);
+  transition:background-color .2s var(--ease),width .2s var(--ease);}
+.fx-dots i.on{background:var(--primary);width:14px;border-radius:3px;}
+@media (max-width:640px){
+  .fx-item{flex-basis:300px;max-width:82vw;}
+  #fixed-count{display:none;}
+}
+
 /* 指标卡 */
 .metric{background:var(--card);border-radius:var(--radius);padding:var(--sp-4) 18px;
   box-shadow:var(--shadow-card);}
@@ -566,12 +597,13 @@ tr:last-child td{border-bottom:0;}
 
   <div class="card" id="fixed-card" style="margin-top:14px">
     <div class="card-head">
-      <h3>每日固定支出</h3>
+      <h3>固定支出规则</h3>
+      <span class="muted" id="fixed-count"></span>
       <span style="flex:1"></span>
-      <button class="btn btn-primary btn-sm" onclick="openFixedModal()">设置</button>
-      <button class="btn btn-sm" onclick="removeFixed()" id="fixed-remove" style="display:none">清除</button>
+      <button class="btn btn-primary btn-sm" data-act="fixed-add">+ 添加</button>
     </div>
-    <div id="fixed-summary"></div>
+    <div id="fixed-scroll" class="fx-scroll"></div>
+    <div class="fx-dots" id="fixed-dots"></div>
   </div>
 
   <div class="grid cards" id="led-metrics" style="margin-top:14px"></div>
@@ -710,7 +742,7 @@ tr:last-child td{border-bottom:0;}
   </div>
 </div>
 
-<script src="localdb.js?v=24"></script>
+<script src="localdb.js?v=25"></script>
 <script src="lib/chart.umd.min.js"></script>
 <script>
 if (typeof Chart === 'undefined') {
@@ -1194,9 +1226,11 @@ function normalize(d){
   });
   var fixed = (d.fixed || []).map(function(v){
     return {
-      id: v.id, effectiveFrom: v.effectiveFrom || '', amount: +v.amount || 0,
+      id: v.id, ruleId: v.ruleId || v.rule_id || 'default',
+      effectiveFrom: v.effectiveFrom || '', amount: +v.amount || 0,
       accountId: v.accountId || '', category: v.category || '其他',
-      weekdaysOnly: v.weekdaysOnly === true, enabled: v.enabled !== false
+      weekdaysOnly: v.weekdaysOnly === true, monthlyDay: +v.monthlyDay || 0,
+      enabled: v.enabled !== false
     };
   });
   /* autoTx 含两类：dca=transfer（净资产不变）、fixed=expense（净资产减少） */
@@ -1205,7 +1239,8 @@ function normalize(d){
       date: t.date, type: t.type || 'transfer',
       accountId: t.accountId || '', toAccountId: t.toAccountId || '',
       category: t.category || '', amount: +t.amount || 0,
-      note: t.note || '', auto: true, autoKind: t.autoKind || AUTO_KIND.DCA
+      note: t.note || '', auto: true, autoKind: t.autoKind || AUTO_KIND.DCA,
+      ruleId: t.ruleId || ''
     };
   });
   return {accounts: accounts, transactions: transactions,
@@ -1446,17 +1481,21 @@ function buildInsights(){
 
   /* 4 · 自动支出占比 */
   var autoSum = spendTotal(curAuto);
-  var fv = db.fixed.length ? db.fixed[db.fixed.length-1] : null;
-  var cfg = fv ? '当前规则：每日 ' + money(fv.amount) + ' · ' + insText(esc(fv.category)) +
-      ' · ' + (fv.enabled ? '启用' : '已暂停') + ' · 起始 ' + insText(fv.effectiveFrom)
-    : '未设置每日固定支出';
+  var fr = fixedRules();
+  var fActive = fr.filter(function(r){ return r.current.enabled; });
+  var fDaily = fActive.filter(function(r){ return !r.current.monthlyDay; })
+    .reduce(function(s,r){ return s + r.current.amount; }, 0);
+  var fMonthly = fActive.filter(function(r){ return r.current.monthlyDay; });
+  var cfg = !fr.length ? '未设置固定支出规则'
+    : '共 ' + fr.length + ' 条规则（' + fActive.length + ' 条启用）· 每日合计 ' + money(fDaily) +
+      (fMonthly.length ? ' · 另有 ' + fMonthly.length + ' 条按月扣款' : '');
   out.push({
     lab:'自动支出占比',
     val: none ? insNA() : insPct(curTotal > 0 ? autoSum/curTotal*100 : 0),
     foot: none ? '本月至今' : '自动 ' + money(autoSum) + ' / 共 ' + money(curTotal),
     title:'自动支出占比',
     body: none ? insEmpty('本月至今还没有支出记录') :
-      insHead('', '自动支出由「每日固定支出」规则按日历派生，不写入流水表；它会主导笔数与频次，所以笔均类指标只看手动记录。') +
+      insHead('', '自动支出由「固定支出规则」按日历派生（每天 / 工作日 / 每月固定日），不写入流水表；它会主导笔数与频次，所以笔均类指标只看手动记录。') +
       insTable([{t:'来源'},{t:'金额',num:true},{t:'笔数',num:true},{t:'占比',num:true}], [
         ['规则自动', money(autoSum), insCount(curAuto.length), insPct(curTotal>0 ? autoSum/curTotal*100 : 0)],
         ['手动记录', money(spendTotal(curMan)), insCount(curMan.length),
@@ -2301,7 +2340,7 @@ function renderData(){
     '账户 ' + db.accounts.length + ' 个 · 流水 ' + db.transactions.length + ' 条 · 自动 ' +
     db.autoTx.length + ' 笔 · 约 ' + (bytes/1024).toFixed(1) + ' KB';
   document.getElementById('data-desc').textContent =
-    '数据保存在本机 SQLite 文件里（data/finance.db），不上传任何服务器。余额由「建账余额 + 累计流水 + 每日定投 + 每日固定支出」自动推导；定投与固定支出按日历派生、不写入流水表。活期、银行卡、银行理财分别独立核算。删改任何一笔真实流水后余额和曲线都会立即重算。';
+    '数据保存在本机 SQLite 文件里（data/finance.db），不上传任何服务器。余额由「建账余额 + 累计流水 + 每日定投 + 固定支出规则」自动推导；定投与固定支出按日历派生、不写入流水表，支持每天、仅工作日与每月固定日（如房租）。活期、银行卡、银行理财分别独立核算。删改任何一笔真实流水后余额和曲线都会立即重算。';
 }
 
 /* ================= 总渲染 ================= */
@@ -2618,59 +2657,129 @@ async function removeDca(){
   } catch(e){ alert.error('清除失败：' + e.message); }
 }
 
-/* ================= 每日固定支出 ================= */
-function fixedCurrent(){
-  return db.fixed.length ? db.fixed[db.fixed.length - 1] : null;
+/* ================= 每日固定支出（多条规则） ================= */
+/* db.fixed 是所有规则的「版本合集」；按 ruleId 分组后，每组最后一条版本即该规则当前配置。
+   后端按规则分组派生自动流水，因此同一天可以有多笔自动支出。 */
+function fixedRules(){
+  var map = {}, order = [];
+  db.fixed.forEach(function(v){
+    var rid = v.ruleId || 'default';
+    if (!map[rid]){ map[rid] = {ruleId:rid, versions:[]}; order.push(map[rid]); }
+    map[rid].versions.push(v);
+  });
+  order.forEach(function(r){
+    r.versions.sort(function(a,b){
+      if (a.effectiveFrom !== b.effectiveFrom) return a.effectiveFrom < b.effectiveFrom ? -1 : 1;
+      return (a.id || 0) - (b.id || 0);
+    });
+    r.start = r.versions[0].effectiveFrom;
+    r.current = r.versions[r.versions.length - 1];
+  });
+  return order;
 }
-function fixedStats(){
+function fixedRuleById(ruleId){
+  var out = null;
+  fixedRules().forEach(function(r){ if (r.ruleId === ruleId) out = r; });
+  return out;
+}
+/* 不传 ruleId 时统计全部自动支出（洞察卡等汇总场景） */
+function fixedStats(ruleId){
   var st = {count:0, total:0, mCount:0, mTotal:0, last:''};
   var m = thisMonth();
   autoTxOf(AUTO_KIND.FIXED).forEach(function(t){
+    if (ruleId && t.ruleId && t.ruleId !== ruleId) return;
     st.count++; st.total += t.amount; st.last = t.date;
     if (monthKey(t.date) === m){ st.mCount++; st.mTotal += t.amount; }
   });
   return st;
 }
+function fxDots(){
+  var el = document.getElementById('fixed-scroll'), box = document.getElementById('fixed-dots');
+  if (!el || !box) return;
+  var items = el.querySelectorAll('.fx-item');
+  if (items.length < 2){ box.innerHTML = ''; return; }
+  var step = items[0].getBoundingClientRect().width + 12;
+  var i = Math.max(0, Math.min(items.length - 1, Math.round(el.scrollLeft / (step || 1))));
+  var html = '';
+  for (var k = 0; k < items.length; k++) html += '<i class="' + (k === i ? 'on' : '') + '"></i>';
+  box.innerHTML = html;
+}
 function renderFixed(){
-  var box = document.getElementById('fixed-summary');
+  var box = document.getElementById('fixed-scroll');
   if (!box) return;
-  var c = fixedCurrent(), s = fixedStats();
-  var rm = document.getElementById('fixed-remove');
-  if (rm) rm.style.display = c ? '' : 'none';
-  if (!c){
-    box.innerHTML = '<div class="muted" style="margin:0">未启用。设置后每天自动记一笔固定花销（如通勤费），从活期扣减，并计入本月支出与明细。</div>';
+  var rules = fixedRules();
+  var cnt = document.getElementById('fixed-count');
+  if (cnt) cnt.textContent = rules.length ? '共 ' + rules.length + ' 条' : '';
+  if (!rules.length){
+    box.innerHTML = '<div class="fx-empty" style="flex:1 1 100%">' +
+      '未启用。点「+ 添加」设置一条自动扣款规则：通勤、午餐可每天或仅工作日扣，' +
+      '房租可设为每月固定日（含未来的首次扣款日）。可以添加多条，卡片左右滑动查看。</div>';
+    document.getElementById('fixed-dots').innerHTML = '';
+    box.onscroll = null;
     return;
   }
-  var acc = accountById(c.accountId), invalid = !acc;
-  var tag = !c.enabled
-    ? '<span class="tag" style="background:var(--fill);color:var(--muted)">已停用</span>'
-    : invalid
-      ? '<span class="tag" style="background:var(--red-weak);color:var(--red)">账户失效</span>'
-      : '<span class="tag" style="background:rgba(52,199,89,.14);color:#248a3d">运行中</span>';
-  var line1 = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-    '<span style="font-size:17px;font-weight:600;font-variant-numeric:tabular-nums">' + money(c.amount) + '</span>' +
-    '<span class="muted">/ ' + (c.weekdaysOnly ? '工作日' : '每天') + '</span>' +
-    '<span class="muted">·</span><span>' + esc(c.category) + ' · ' +
-      esc(acc ? acc.name : '账户已删除') + '</span>' + tag + '</div>';
-  var start = db.fixed[0] ? db.fixed[0].effectiveFrom : c.effectiveFrom;
-  var line2 = '<div class="muted" style="margin-top:7px">累计 ' + s.count + ' 笔 ' + money(s.total) +
-    ' · 本月 ' + s.mCount + ' 笔 ' + money(s.mTotal) +
-    (s.last ? ' · 最近结算 ' + s.last : '') + ' · 起始 ' + start + '</div>';
-  var warn = invalid
-    ? '<div class="muted" style="margin-top:6px;color:var(--red)">扣款账户已被删除，期间不产生支出，请点「设置」重新指定。</div>'
-    : '';
-  var note = '<div class="muted" style="margin-top:6px;font-size:11.5px;opacity:.85">' +
-    '按自然日结算，与脚本是否运行无关；未打开期间的应扣日会在下次打开时一次性补齐，每天至多一笔，不重复记。修改金额或停用只从今天起生效，历史不变。</div>';
-  box.innerHTML = line1 + line2 + warn + note;
+  box.innerHTML = rules.map(function(r){
+    var c = r.current, s = fixedStats(r.ruleId);
+    var acc = accountById(c.accountId), invalid = !acc;
+    var future = !!(c.monthlyDay && r.start > today());
+    var tag = future
+      ? '<span class="tag" style="background:var(--primary-weak);color:var(--primary)">待首次扣款</span>'
+      : !c.enabled
+        ? '<span class="tag" style="background:#fff;color:var(--muted)">已停用</span>'
+        : invalid
+          ? '<span class="tag" style="background:var(--red-weak);color:var(--red)">账户失效</span>'
+          : '<span class="tag" style="background:rgba(52,199,89,.14);color:#248a3d">运行中</span>';
+    var freq = c.monthlyDay ? '每月 ' + c.monthlyDay + ' 号'
+      : (c.weekdaysOnly ? '每个工作日' : '每天');
+    var top = '<div class="fx-top">' +
+      '<span class="fx-amt">' + money(c.amount) + '</span>' +
+      '<span class="muted">/ ' + freq + '</span>' + tag + '</div>';
+    var meta = '<div class="fx-meta">' + esc(c.category) + ' · ' +
+      esc(acc ? acc.name : '账户已删除') + '<br>' +
+      '本月 ' + s.mCount + ' 笔 ' + money(s.mTotal) +
+      ' · 累计 ' + s.count + ' 笔 ' + money(s.total) + '<br>' +
+      (c.monthlyDay ? '首次 ' : '起始 ') + esc(r.start) +
+      (s.last ? ' · 最近 ' + esc(s.last) : '') +
+      (future ? '<br>到首次扣款日之前不产生支出' : '') + '</div>';
+    var warn = invalid
+      ? '<div class="fx-meta" style="color:var(--red)">扣款账户已删除，期间不产生支出，请点「编辑」重新指定。</div>'
+      : '';
+    var foot = '<div class="fx-foot">' +
+      '<button class="btn btn-sm" data-act="fixed-edit" data-id="' + esc(r.ruleId) + '">编辑</button>' +
+      '<button class="btn btn-sm" data-act="fixed-toggle" data-id="' + esc(r.ruleId) + '">' +
+        (c.enabled ? '停用' : '启用') + '</button>' +
+      '<button class="btn btn-sm btn-danger" data-act="fixed-del" data-id="' + esc(r.ruleId) + '">删除</button>' +
+      '</div>';
+    return '<div class="fx-item">' + top + meta + warn + foot + '</div>';
+  }).join('');
+  box.onscroll = fxDots;
+  fxDots();
 }
 
-function openFixedModal(){
+function fxScrollToLast(){
+  var el = document.getElementById('fixed-scroll');
+  if (!el) return;
+  if (window.requestAnimationFrame) requestAnimationFrame(function(){
+    el.scrollLeft = el.scrollWidth;
+    fxDots();
+  });
+}
+/* 月付规则默认给「下个月 1 号」，房租一类的固定日通常从月初起算 */
+function nextMonthFirst(){
+  var d = new Date(), y = d.getFullYear(), m = d.getMonth() + 2;
+  if (m > 12){ m = 1; y++; }
+  return y + '-' + (m < 10 ? '0' : '') + m + '-01';
+}
+function openFixedModal(ruleId){
   var daily = accountsByRole('daily');
   if (!daily.length){
     alert('需要先有一个「日常可用」账户（活期或银行卡）作为扣款来源。');
     return;
   }
-  var c = fixedCurrent(), isFirst = !c;
+  var rule = ruleId ? fixedRuleById(ruleId) : null;
+  if (ruleId && !rule){ alert.error('这条规则已不存在，请刷新后重试。'); return; }
+  var isNew = !rule, isFirst = fixedRules().length === 0;
+  var c = rule ? rule.current : null;
   var aid = c ? c.accountId : daily[0].id;
   if (!accountById(aid)) aid = daily[0].id;
   var cat = c ? c.category : '交通';
@@ -2679,63 +2788,138 @@ function openFixedModal(){
       return '<option value="' + k + '"' + (k === sel ? ' selected' : '') + '>' + k + '</option>';
     }).join('');
   }
+  /* 周期：每天 / 仅工作日 / 每月固定日。
+     首条每日规则可指定起始日补算历史；之后新增的每日规则从今天起；
+     月付规则始终可指定未来的首次扣款日，到那天之前不产生任何支出。 */
+  var calVal = c ? (c.monthlyDay ? 'monthly' : (c.weekdaysOnly ? 'weekday' : 'all')) : 'all';
+  var startField = isNew
+    ? '<div class="field" id="fx-start-row"' + (isFirst ? '' : ' style="display:none"') + '>' +
+        '<label>起始日</label><input type="date" id="fx-start" value="' + today() + '"></div>' +
+      '<div class="field" id="fx-monthly-row" style="display:none">' +
+        '<label>首次扣款日（之后每月这一天扣款）</label>' +
+        '<input type="date" id="fx-first" value="' + nextMonthFirst() + '"></div>'
+    : '<div class="field"><label>' + (c.monthlyDay ? '首次扣款日' : '起始日') +
+        '（已生效，不可修改）</label>' +
+        '<input type="date" value="' + esc(rule.start) + '" disabled></div>';
+  function syncCal(){
+    var sel = document.getElementById('fx-cal');
+    if (!sel) return;
+    var monthly = sel.value === 'monthly';
+    var sr = document.getElementById('fx-start-row');
+    var mr = document.getElementById('fx-monthly-row');
+    if (sr) sr.style.display = (!monthly && isFirst) ? '' : 'none';
+    if (mr) mr.style.display = monthly ? '' : 'none';
+    var h = document.getElementById('fx-hint');
+    if (!h) return;
+    h.textContent = monthly
+      ? (isNew
+          ? '从首次扣款日起，每月的这一天扣一笔（如房租）。当月没有这一天时顺延到月末；在此之前不产生支出。'
+          : '每月 ' + c.monthlyDay + ' 号扣款；当月没有这一天时顺延到月末。')
+      : isNew && isFirst
+        ? '起始日之前不会补算。填过去的日期，表示你确认那些天确实花过这笔钱，系统会一次性补齐到今天。'
+        : isNew
+          ? '这条规则从今天起生效，不会补算之前的日期，已有余额与统计保持不变。'
+          : '本次修改从今天起生效，之前的金额保持不变；当天只按新金额记一次，不会重复。';
+  }
   var body =
-    '<div class="field"><label>每天固定支出金额 (¥)</label>' +
+    '<div class="field"><label>每次扣款金额 (¥)</label>' +
       '<input type="number" id="fx-amt" step="0.01" min="0" value="' +
         (privacyOn ? '' : (c ? c.amount : 10)) + '"' +
-        (privacyOn ? ' placeholder="请输入每日金额（当前金额已隐藏）"' : '') + '></div>' +
+        (privacyOn ? ' placeholder="请输入每次扣款金额（当前金额已隐藏）"' : '') + '></div>' +
     '<div class="field"><label>分类</label><select id="fx-cat">' + opts(cat) + '</select></div>' +
     '<div class="field"><label>扣款账户 · 日常可用</label><select id="fx-acct">' +
       daily.map(function(a){
-        return '<option value="' + a.id + '"' + (a.id === aid ? ' selected' : '') + '>' + esc(a.name) + '</option>';
+        return '<option value="' + esc(a.id) + '"' + (a.id === aid ? ' selected' : '') + '>' + esc(a.name) + '</option>';
       }).join('') + '</select></div>' +
-    '<div class="field"><label>扣款日历</label><select id="fx-cal">' +
-      '<option value="all"' + (!c || !c.weekdaysOnly ? ' selected' : '') + '>每天（含周末）</option>' +
-      '<option value="weekday"' + (c && c.weekdaysOnly ? ' selected' : '') + '>仅工作日（周一至周五）</option></select></div>' +
+    '<div class="field"><label>扣款周期</label><select id="fx-cal"' + (isNew ? '' : ' disabled') + '>' +
+      '<option value="all"' + (calVal === 'all' ? ' selected' : '') + '>每天（含周末）</option>' +
+      '<option value="weekday"' + (calVal === 'weekday' ? ' selected' : '') + '>仅工作日（周一至周五）</option>' +
+      '<option value="monthly"' + (calVal === 'monthly' ? ' selected' : '') + '>每月固定日（如房租）</option>' +
+      '</select></div>' +
+    (isNew ? '' : '<span class="muted" style="font-size:11.5px;line-height:1.7">扣款周期已生效，如需更换请删除这条规则后重新添加。</span>') +
     '<div class="field"><label>状态</label><select id="fx-on">' +
       '<option value="on"' + (!c || c.enabled ? ' selected' : '') + '>启用</option>' +
       '<option value="off"' + (c && !c.enabled ? ' selected' : '') + '>停用</option></select></div>' +
-    '<div class="field"><label>起始日' + (isFirst ? '' : '（已生效，不可修改）') + '</label>' +
-      '<input type="date" id="fx-start" value="' + (isFirst ? today() : db.fixed[0].effectiveFrom) + '"' +
-      (isFirst ? '' : ' disabled') + '></div>' +
-    '<span class="muted" style="font-size:11.5px;line-height:1.7">' +
-      (isFirst
-        ? '起始日之前不会补算。填过去的日期，表示你确认那些天确实花过这笔钱，系统会一次性补齐到今天。'
-        : '本次修改从今天起生效，之前的金额保持不变；当天只按新金额记一次，不会重复。') +
-      '<br>自动支出计入本月支出与分类统计、显示在明细里（标记「自动」，不可单条删除），净资产随之减少。' +
-    '</span>';
-  openModal(isFirst ? '开启每日固定支出' : '修改每日固定支出', body, async function(){
+    startField +
+    '<span class="muted" id="fx-hint" style="font-size:11.5px;line-height:1.7;display:block"></span>' +
+    '<span class="muted" style="font-size:11.5px;line-height:1.7;display:block;margin-top:6px">' +
+      '自动支出计入本月支出与分类统计、显示在明细里（标记「自动」，不可单条删除），净资产随之减少。</span>';
+  openModal(isNew ? '添加固定支出规则' : '修改固定支出规则', body, async function(){
     var raw = String(document.getElementById('fx-amt').value).trim();
-    if (raw === '' && isFirst){ alert('请填写每日支出金额'); return false; }
+    if (raw === '' && isNew){ alert('请填写每次扣款金额'); return false; }
     var v = raw === '' ? c.amount : +raw;
     if (isNaN(v) || v < 0){ alert('请填写有效金额（0 表示不记录）'); return false; }
+    var cal = document.getElementById('fx-cal').value;
+    var monthly = cal === 'monthly';
     var payload = {
       amount: v,
       accountId: document.getElementById('fx-acct').value,
       category: document.getElementById('fx-cat').value,
-      weekdaysOnly: document.getElementById('fx-cal').value === 'weekday',
+      weekdaysOnly: cal === 'weekday',
       enabled: document.getElementById('fx-on').value === 'on'
     };
-    if (isFirst) payload.startDate = document.getElementById('fx-start').value || today();
+    if (monthly){
+      if (isNew){
+        var first = String(document.getElementById('fx-first').value || '').trim();
+        if (!first){ alert('请选择首次扣款日'); return false; }
+        payload.monthlyDay = +first.slice(8,10);
+        payload.startDate = first;
+      } else {
+        payload.monthlyDay = c.monthlyDay;
+      }
+    }
+    if (rule) payload.ruleId = rule.ruleId;
+    if (isNew && isFirst && !monthly){
+      payload.startDate = document.getElementById('fx-start').value || today();
+    }
     try {
       await api('/api/fixed', {method:'POST', body: payload});
       await reload();
-      alert.success(isFirst ? '固定支出已开启，余额已按起始日结算。' : '配置已更新。');
+      if (isNew) fxScrollToLast();
+      alert.success(isNew
+        ? (monthly ? '已添加，从 ' + payload.startDate + ' 起每月扣一笔。'
+                   : isFirst ? '固定支出已开启，余额已按起始日结算。'
+                             : '已添加，从今天起自动记一笔。')
+        : '配置已更新。');
     } catch(e){
       alert.error(e.message || '保存失败');
       return false;
     }
   });
+  var calSel = document.getElementById('fx-cal');
+  if (calSel && isNew) calSel.addEventListener('change', syncCal);
+  syncCal();
 }
 
-async function removeFixed(){
-  if (!confirm('清除每日固定支出配置？')) return;
-  if (!confirm('再次确认：清除后，此前所有自动支出都会从余额和统计中消失，历史随之变化。建议先导出备份。')) return;
+async function toggleFixed(ruleId){
+  var r = fixedRuleById(ruleId);
+  if (!r) return;
+  var c = r.current;
+  if (!accountById(c.accountId)){
+    alert('扣款账户已被删除，请先点「编辑」重新指定账户。');
+    return;
+  }
   try {
-    await api('/api/fixed', {method:'DELETE'});
+    await api('/api/fixed', {method:'POST', body:{
+      ruleId: r.ruleId, amount: c.amount, accountId: c.accountId,
+      category: c.category, weekdaysOnly: c.weekdaysOnly,
+      monthlyDay: c.monthlyDay || 0, enabled: !c.enabled
+    }});
     await reload();
-    alert.success('固定支出配置已清除。');
-  } catch(e){ alert('清除失败：' + e.message); }
+    alert.success(c.enabled ? '已停用，从今天起不再扣款。' : '已启用，从今天起恢复扣款。');
+  } catch(e){ alert.error(e.message || '操作失败'); }
+}
+
+async function removeFixed(ruleId){
+  var r = fixedRuleById(ruleId);
+  if (!r) return;
+  if (!confirm('删除这条每日固定支出规则？')) return;
+  if (!confirm('再次确认：删除后，这条规则此前产生的所有自动支出都会从余额和统计中消失，历史随之变化。建议先导出备份。')) return;
+  try {
+    await api('/api/fixed/' + encodeURIComponent(r.ruleId), {method:'DELETE'});
+    await reload();
+    alert.success('规则已删除。');
+  } catch(e){ alert.error(e.message || '删除失败'); }
 }
 
 function openAccountModal(){
@@ -3132,7 +3316,11 @@ var ACTIONS = {
   'acct-transfer': openTransferModal,
   'acct-delete': delAccount,
   'tx-edit': openTxModal,
-  'tx-delete': delTx
+  'tx-delete': delTx,
+  'fixed-add': function(){ openFixedModal(); },
+  'fixed-edit': openFixedModal,
+  'fixed-toggle': toggleFixed,
+  'fixed-del': removeFixed
 };
 function runAction(el){
   var fn = ACTIONS[el.getAttribute('data-act')];

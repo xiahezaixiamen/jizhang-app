@@ -160,8 +160,10 @@
 
   /* ---------- 虚拟自动流水：定投 + 每日固定支出 ----------
    * 与 app.py 的 _expand_versions / auto_virtual 一一对应：
-   * 按日历逐日展开配置版本，起始日到「今天」全覆盖，一天至多一笔，
-   * 配置变更当日按新版本算一次。不写库，每次读取重算。 */
+   * 按日历逐日展开「一条规则」的配置版本，起始日到「今天」全覆盖，
+   * 该规则一天至多一笔，配置变更当日按新版本算一次。
+   * 固定支出按 ruleId 分组，每条规则各展开一次，同一天可以有多笔。
+   * 不写库，每次读取重算。 */
   function expandVersions(versions, asOf, build) {
     if (!versions.length) return [];
     var startN = dayNum(versions[0].effectiveFrom);
@@ -177,7 +179,12 @@
         vi += 1;
       }
       if (!cur || !cur.enabled || !(cur.amount > 0)) continue;
-      if (cur.weekdaysOnly) {
+      var md = +cur.monthlyDay || 0;
+      if (md) {
+        /* 每月固定日：当月没有这一天（如 31 号遇到 2 月）时顺延到月末 */
+        var lastDay = new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7), 0)).getUTCDate();
+        if (+iso.slice(8, 10) !== Math.min(md, lastDay)) continue;
+      } else if (cur.weekdaysOnly) {
         var wd = weekdayOf(n);
         if (wd === 0 || wd === 6) continue;
       }
@@ -197,14 +204,30 @@
         date: iso, type: 'transfer', accountId: cur.fromId, toAccountId: cur.toId,
         category: '', amount: cur.amount, note: '每日定投', auto: true, autoKind: 'dca'
       };
-    }).concat(expandVersions(fixedVersions, asOf, function (cur, iso) {
-      if (!valid[cur.accountId]) return null;
-      return {
-        date: iso, type: 'expense', accountId: cur.accountId, toAccountId: '',
-        category: cur.category, amount: cur.amount, note: '每日固定支出',
-        auto: true, autoKind: 'fixed'
-      };
-    }));
+    });
+
+    var groups = {}, order = [];
+    fixedVersions.forEach(function (v) {
+      var rid = v.ruleId || 'default';
+      if (!groups[rid]) { groups[rid] = []; order.push(rid); }
+      groups[rid].push(v);
+    });
+    order.sort();
+    order.forEach(function (rid) {
+      var vs = groups[rid].slice().sort(function (a, b) {
+        if (a.effectiveFrom !== b.effectiveFrom) return a.effectiveFrom < b.effectiveFrom ? -1 : 1;
+        return (a.id || 0) - (b.id || 0);
+      });
+      txs = txs.concat(expandVersions(vs, asOf, function (cur, iso) {
+        if (!valid[cur.accountId]) return null;
+        return {
+          date: iso, type: 'expense', accountId: cur.accountId, toAccountId: '',
+          category: cur.category, amount: cur.amount,
+          note: cur.monthlyDay ? '每月固定支出' : '每日固定支出',
+          auto: true, autoKind: 'fixed', ruleId: rid
+        };
+      }));
+    });
 
     txs.sort(function (a, b) {
       if (a.date !== b.date) return a.date < b.date ? -1 : 1;
@@ -228,7 +251,9 @@
         if (a.effectiveFrom !== b.effectiveFrom) return a.effectiveFrom < b.effectiveFrom ? -1 : 1;
         return a.id - b.id;
       });
+      r[3].forEach(function (v) { if (!v.ruleId) v.ruleId = 'default'; });
       var fixed = r[3].sort(function (a, b) {
+        if (a.ruleId !== b.ruleId) return a.ruleId < b.ruleId ? -1 : 1;
         if (a.effectiveFrom !== b.effectiveFrom) return a.effectiveFrom < b.effectiveFrom ? -1 : 1;
         return a.id - b.id;
       });
@@ -506,6 +531,8 @@
     });
   }
 
+  /* 与 app.py save_fixed 对齐：不传 ruleId 为新增规则，
+     首条可指定起始日，之后新增一律从今天起；传 ruleId 为修改该规则。 */
   function saveFixed(d) {
     var amount = Math.round(Number(d.amount || 0) * 100) / 100;
     if (!isFinite(amount) || amount < 0 || amount > MAX_AMOUNT) throw new Error('金额超出允许范围');
@@ -515,6 +542,11 @@
     if (!FIXED_CATS[category]) throw new Error('分类无效');
     var enabled = d.enabled !== false;
     var weekdays = d.weekdaysOnly !== undefined ? !!d.weekdaysOnly : !!d.weekdays_only;
+    var monthlyDay = Math.floor(Number(d.monthlyDay || d.monthly_day || 0));
+    if (!isFinite(monthlyDay) || monthlyDay < 0 || monthlyDay > 31) {
+      throw new Error('每月扣款日应为 1-31');
+    }
+    var rid = clip(d.ruleId || d.rule_id, 40);
 
     return Promise.all([readAll('accounts'), readAll('fixed')]).then(function (r) {
       var accounts = r[0], versions = r[1];
@@ -522,35 +554,73 @@
       accounts.forEach(function (a) { if (a.id === aid) acc = a; });
       if (!acc || !DAILY_TYPES[acc.type]) throw new Error('扣款账户需为「活期」或「银行卡」');
 
+      versions.forEach(function (v) { if (!v.ruleId) v.ruleId = 'default'; });
       versions.sort(function (a, b) {
         if (a.effectiveFrom !== b.effectiveFrom) return a.effectiveFrom < b.effectiveFrom ? -1 : 1;
         return a.id - b.id;
       });
 
-      var eff, same = null;
-      if (!versions.length) {
+      var eff, same = null, exists = false, i;
+      if (rid) {
+        var firstEff = null;
+        for (i = 0; i < versions.length; i++) {
+          if (versions[i].ruleId === rid) {
+            exists = true;
+            if (firstEff === null || versions[i].effectiveFrom < firstEff) {
+              firstEff = versions[i].effectiveFrom;
+            }
+          }
+        }
+        if (!exists) throw new Error('规则不存在或已被删除');
+        eff = todayStr();
+        /* 首次扣款日在未来的月付规则：改动落在首次版本上，不提前生效 */
+        if (monthlyDay && firstEff && firstEff > eff) eff = firstEff;
+      } else if (!versions.length || monthlyDay) {
+        /* 月付规则允许指定未来的首次扣款日，到那天之前不产生支出 */
         eff = checkDate(d.startDate || d.start_date || todayStr());
-        if (eff > todayStr()) throw new Error('起始日不能晚于今天');
+        if (eff > todayStr() && !monthlyDay) throw new Error('起始日不能晚于今天');
+        rid = !versions.length ? 'default' : newId();
       } else {
         eff = todayStr();
-        for (var i = versions.length - 1; i >= 0; i--) {
-          if (versions[i].effectiveFrom === eff) { same = versions[i]; break; }
+        rid = newId();
+      }
+      for (i = versions.length - 1; i >= 0; i--) {
+        if (versions[i].ruleId === rid && versions[i].effectiveFrom === eff) {
+          same = versions[i]; break;
         }
       }
       var row = {
-        effectiveFrom: eff, amount: amount, accountId: aid, category: category,
-        weekdaysOnly: weekdays, enabled: enabled
+        ruleId: rid, effectiveFrom: eff, amount: amount, accountId: aid,
+        category: category, weekdaysOnly: weekdays, monthlyDay: monthlyDay,
+        enabled: enabled
       };
       if (same) row.id = same.id;
       return write([{ op: 'put', store: 'fixed', value: row }]).then(function () {
         return readAll('fixed').then(function (v) {
+          v.forEach(function (x) { if (!x.ruleId) x.ruleId = 'default'; });
           v.sort(function (a, b) {
+            if (a.ruleId !== b.ruleId) return a.ruleId < b.ruleId ? -1 : 1;
             if (a.effectiveFrom !== b.effectiveFrom) return a.effectiveFrom < b.effectiveFrom ? -1 : 1;
             return a.id - b.id;
           });
           return { fixed: v };
         });
       });
+    });
+  }
+
+  /* 删除一条规则的全部版本，不影响其他规则 */
+  function deleteFixedRule(ruleId) {
+    var rid = clip(ruleId, 40);
+    return readAll('fixed').then(function (rows) {
+      var ops = [];
+      rows.forEach(function (v) {
+        if ((v.ruleId || 'default') === rid) {
+          ops.push({ op: 'del', store: 'fixed', key: v.id });
+        }
+      });
+      if (!ops.length) throw new Error('规则不存在或已被删除');
+      return write(ops).then(function () { return { ok: true }; });
     });
   }
 
@@ -636,10 +706,15 @@
       try { eff = checkDate(v.effectiveFrom || v.effective_from); } catch (e) { return; }
       var cat = clip(v.category, 20) || '其他';
       if (!FIXED_CATS[cat]) cat = '其他';
+      /* 旧备份没有 ruleId / monthlyDay，整条版本链归入默认的每日规则 */
+      var rid = clip(v.ruleId || v.rule_id, 40) || 'default';
+      var md = Math.floor(Number(v.monthlyDay || v.monthly_day || 0));
+      if (!isFinite(md) || md < 0 || md > 31) md = 0;
       cfgOps.push({
         op: 'put', store: 'fixed', value: {
-          effectiveFrom: eff, amount: amt, accountId: aid, category: cat,
-          weekdaysOnly: v.weekdaysOnly === true, enabled: v.enabled !== false
+          ruleId: rid, effectiveFrom: eff, amount: amt, accountId: aid, category: cat,
+          weekdaysOnly: v.weekdaysOnly === true, monthlyDay: md,
+          enabled: v.enabled !== false
         }
       });
     });
@@ -694,6 +769,9 @@
     }
     if (method === 'DELETE' && parts.length === 2 && parts[1] === 'dca') {
       return write([{ op: 'clear', store: 'dca' }]).then(function () { return { ok: true }; });
+    }
+    if (method === 'DELETE' && parts.length === 3 && parts[1] === 'fixed') {
+      return deleteFixedRule(parts[2]);
     }
     if (method === 'DELETE' && parts.length === 2 && parts[1] === 'fixed') {
       return write([{ op: 'clear', store: 'fixed' }]).then(function () { return { ok: true }; });
