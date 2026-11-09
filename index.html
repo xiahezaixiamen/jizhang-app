@@ -14,29 +14,40 @@
 <title>本地个人财务管理</title>
 <style>
 :root{
+  /* ===== 新拟物派（StyleKit · neumorphism）=====
+     全站只有一种表面色，层次全部由「左上高光 + 右下暗影」两段阴影承担：
+     不换底色、不加实色边框、不用纯黑阴影。 */
+  --base:#e0e5ec; --shade:#b8bcc2; --glow:#ffffff;
   /* 表面与文字 */
-  --bg:#f5f5f7; --card:#ffffff; --text:#000000; --muted:#6b7280;
-  --faint:#9ca3af; --hair:rgba(0,0,0,.08);
-  --fill:#f5f5f7; --fill-hover:#ececee;
-  /* Apple Action Blue #0066cc 为主色；#0071e3 只做键盘聚焦环 */
-  --primary:#0066cc; --primary-focus:#0071e3; --primary-hover:#0071e3;
-  --primary-weak:rgba(0,102,204,.1); --primary-weak-hover:rgba(0,102,204,.16);
-  /* 功能语义色：涨红跌绿（中国习惯）与分类色，非品牌 accent，保留 */
-  --red:#ff3b30; --red-weak:rgba(255,59,48,.1);
-  --green:#34c759; --green-weak:rgba(52,199,89,.12);
-  /* 形状与动效 */
-  --radius:18px; --radius-sm:12px; --radius-xs:8px; --radius-pill:9999px;
-  --ease:cubic-bezier(0.25,0.1,0.25,1);
-  --shadow-card:0 1px 3px rgba(0,0,0,.05),0 6px 18px rgba(0,0,0,.035);
-  --shadow-pop:0 24px 70px rgba(0,0,0,.2),0 8px 24px rgba(0,0,0,.08);
+  --bg:var(--base); --card:var(--base); --text:#3d4451; --muted:#6b7280;
+  --faint:#8b929c; --hair:rgba(184,188,194,.5);
+  --fill:var(--base); --fill-hover:#dde2e9;
+  /* 主色：Blurple；警示 Coral；正向 Mint。
+     语义色文字用加深版，否则在 #e0e5ec 上读不清（图表仍用原色）。 */
+  --primary:#6d5dfc; --primary-focus:#6d5dfc; --primary-hover:#5b4bf0;
+  --primary-weak:rgba(109,93,252,.1); --primary-weak-hover:rgba(109,93,252,.16);
+  --red:#d9534f; --red-weak:rgba(255,107,107,.14);
+  --green:#1c9d90; --green-weak:rgba(78,205,196,.16);
+  /* 形状与动效：卡片 24 / 按钮与输入 16 / 小件 12 / 胶囊 */
+  --radius:24px; --radius-sm:16px; --radius-xs:12px; --radius-pill:999px;
+  --ease:cubic-bezier(.4,0,.2,1);
+  /* 阴影四态：凸起 / 轻凸 / 凹陷 / 轻凹 */
+  --raise:8px 8px 16px var(--shade),-8px -8px 16px var(--glow);
+  --raise-sm:4px 4px 8px var(--shade),-4px -4px 8px var(--glow);
+  --raise-xs:3px 3px 6px var(--shade),-3px -3px 6px var(--glow);
+  --sink:inset 8px 8px 16px var(--shade),inset -8px -8px 16px var(--glow);
+  --sink-sm:inset 4px 4px 8px var(--shade),inset -4px -4px 8px var(--glow);
+  --sink-xs:inset 2px 2px 5px var(--shade),inset -2px -2px 5px var(--glow);
+  --shadow-card:var(--raise);
+  --shadow-pop:16px 16px 32px rgba(184,188,194,.75),-16px -16px 32px rgba(255,255,255,.92);
   /* 间距刻度：4 的倍数，结构尺寸一律取这里的值 */
   --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px;
   --sp-6:24px; --sp-8:32px; --sp-12:48px;
   /* 字号层级 */
   --fs-micro:11px; --fs-caption:12px; --fs-body:13px;
   --fs-card-title:14px; --fs-metric:26px; --fs-metric-sm:21px;
-  --font:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",
-    "Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  --font:'Inter',-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",
+    "PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
 }
 /* 全局键盘态：按钮/可聚焦元素统一 2px 聚焦环；输入框另用填充式 focus ring */
 button:focus-visible,[tabindex]:focus-visible{
@@ -94,7 +105,7 @@ header,.wrap{animation:bootFade .32s var(--ease) both;}
 
 h2{font-size:15px;font-weight:600;margin:0 0 var(--sp-1);letter-spacing:-.2px;}
 .sub{color:var(--muted);font-size:12.5px;margin:0 0 var(--sp-3);}
-.grid{display:grid;gap:var(--sp-3);}
+.grid{display:grid;gap:24px;}
 .grid>*{min-width:0;}
 .cards{grid-template-columns:repeat(auto-fit,minmax(160px,1fr));}
 .two{grid-template-columns:1fr 1fr;}
@@ -204,10 +215,10 @@ canvas{max-width:100%;}
 .btn:hover{background:var(--primary-weak-hover);}
 .btn:active{transform:scale(.95);}
 .btn-primary{background:var(--primary);color:#fff;
-  box-shadow:0 3px 10px rgba(0,102,204,.22);}
+  box-shadow:0 3px 10px rgba(109,93,252,.22);}
 .btn-primary:hover{background:var(--primary-hover);color:#fff;
-  transform:translateY(-1px);box-shadow:0 5px 16px rgba(0,102,204,.28);}
-.btn-primary:active{transform:scale(.95);box-shadow:0 2px 6px rgba(0,102,204,.22);}
+  transform:translateY(-1px);box-shadow:0 5px 16px rgba(109,93,252,.28);}
+.btn-primary:active{transform:scale(.95);box-shadow:0 2px 6px rgba(109,93,252,.22);}
 .btn-danger{background:var(--red-weak);color:var(--red);}
 .btn-danger:hover{background:rgba(255,59,48,.16);color:var(--red);}
 .btn-danger:active{transform:scale(.95);}
@@ -239,7 +250,7 @@ input:focus,select:focus{outline:none;background:var(--fill);
 .seg button.on{background:#fff;color:var(--text);font-weight:600;
   box-shadow:0 1px 3px rgba(0,0,0,.1),0 0 0 .5px rgba(0,0,0,.02);}
 .seg button[data-type="expense"].on{color:var(--red);}
-.seg button[data-type="income"].on{color:#248a3d;}
+.seg button[data-type="income"].on{color:var(--green);}
 
 /* 表格：发丝分割线 + 行反馈，金额统一等宽数字右对齐 */
 table{width:100%;border-collapse:collapse;font-size:var(--fs-body);}
@@ -247,8 +258,8 @@ th{text-align:left;color:var(--muted);font-weight:600;font-size:var(--fs-caption
   padding:var(--sp-2) 8px;border-bottom:.5px solid var(--hair);}
 td{padding:var(--sp-2) 8px;border-bottom:.5px solid var(--hair);}
 tbody tr{transition:background-color .15s var(--ease);}
-tbody tr:hover{background:rgba(0,102,204,.025);}
-tbody tr:focus-within{background:rgba(0,102,204,.04);}
+tbody tr:hover{background:rgba(109,93,252,.025);}
+tbody tr:focus-within{background:rgba(109,93,252,.04);}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
 tr:last-child td{border-bottom:0;}
 #ov-accounts,#ana-table{overflow-x:auto;-webkit-overflow-scrolling:touch;}
@@ -319,9 +330,9 @@ tr:last-child td{border-bottom:0;}
 .list-item{display:flex;align-items:center;gap:10px;padding:10px 8px;
   border-bottom:.5px solid var(--hair);font-size:var(--fs-body);
   border-radius:var(--radius-xs);transition:background-color .15s var(--ease);}
-.list-item:hover{background:rgba(0,102,204,.025);}
+.list-item:hover{background:rgba(109,93,252,.025);}
 .list-item.is-editable{cursor:pointer;}
-.list-item.is-editable:active{background:rgba(0,102,204,.06);}
+.list-item.is-editable:active{background:rgba(109,93,252,.06);}
 .list-item:last-child{border-bottom:0;}
 .list-item .grow{flex:1;min-width:0;}
 .list-item .note{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -371,6 +382,108 @@ tr:last-child td{border-bottom:0;}
   .toolbar .field{flex:1 1 130px;}
   .toolbar .field input,.toolbar .field select{width:100%;}
 }
+/* ================= 新拟物材质层 =================
+   令牌层已换成同色 + 双阴影，这里只处理原来写死 #fff / 纯黑阴影 / 边框的地方。
+   布局（flex/grid/尺寸）一律不动，所以要退回旧皮肤只需删掉这一块 + 还原 :root。 */
+body{-webkit-font-smoothing:antialiased;}
+
+/* 顶栏：不做毛玻璃，改成与底同色的浮起面 + 向下柔和投影（无边框） */
+header{background:var(--base);border-bottom:0;
+  -webkit-backdrop-filter:none;backdrop-filter:none;
+  box-shadow:0 6px 16px rgba(184,188,194,.45);}
+nav{background:var(--base);border-radius:var(--radius-sm);box-shadow:var(--sink-xs);}
+nav button{border-radius:var(--radius-xs);}
+nav button.active{background:var(--base);color:var(--text);box-shadow:var(--raise-xs);}
+.eye-btn{background:var(--base);color:var(--muted);box-shadow:var(--raise-xs);}
+.eye-btn:hover{background:var(--base);color:var(--text);}
+.eye-btn:active{transform:translateY(-50%);box-shadow:var(--sink-xs);}
+
+/* 卡片与指标块：同色 + 凸起。规范要 32px 内边距，账目界面密度更高，取 24px */
+.card,.metric{background:var(--base);box-shadow:var(--shadow-card);}
+.card{padding:var(--sp-6);}
+
+/* 按钮：中性件凸起，主动作用紫罗兰实心；按下翻成凹陷，不做位移 */
+.btn{background:var(--base);color:var(--text);border-radius:var(--radius-sm);
+  font-weight:500;box-shadow:var(--raise);}
+.btn:hover{background:var(--base);box-shadow:var(--raise-sm);}
+.btn:active{transform:none;box-shadow:var(--sink-sm);}
+.btn-primary{background:var(--primary);color:#fff;
+  box-shadow:4px 4px 10px rgba(109,93,252,.35),-4px -4px 10px rgba(255,255,255,.9);}
+.btn-primary:hover{background:var(--primary-hover);color:#fff;transform:none;
+  box-shadow:3px 3px 8px rgba(109,93,252,.4),-3px -3px 8px rgba(255,255,255,.9);}
+.btn-primary:active{transform:none;
+  box-shadow:inset 3px 3px 8px rgba(72,58,200,.5),inset -3px -3px 8px rgba(255,255,255,.25);}
+.btn-danger{background:var(--base);color:var(--red);box-shadow:var(--raise-sm);}
+.btn-danger:hover{background:var(--base);color:#c0392b;box-shadow:var(--raise-xs);}
+.btn-sm{border-radius:var(--radius-xs);}
+.btn:focus-visible,button:focus-visible{outline:2px solid var(--primary);outline-offset:3px;}
+
+/* 输入控件：凹陷；聚焦不加深，反而变浅并带一圈紫罗兰（模拟通道打开） */
+input,select{background:var(--base);border:0;border-radius:var(--radius-sm);
+  color:var(--text);box-shadow:var(--sink);}
+input:hover,select:hover{background:var(--base);}
+input:focus,select:focus{background:var(--base);outline:none;
+  box-shadow:inset 5px 5px 10px var(--shade),inset -5px -5px 10px var(--glow),
+    0 0 0 2px rgba(109,93,252,.3);}
+
+/* 分段控件：轨道凹陷，选中项浮起 */
+.seg{background:var(--base);border-radius:var(--radius-sm);box-shadow:var(--sink-xs);}
+.seg button{border-radius:var(--radius-xs);}
+.seg button.on{background:var(--base);box-shadow:var(--raise-xs);}
+
+/* 表格：取消硬分割线，用一道极浅折痕代替 */
+th,td{border-bottom:1px solid var(--hair);background:transparent;}
+tbody tr:hover{background:rgba(184,188,194,.16);}
+tbody tr:focus-within{background:rgba(184,188,194,.22);}
+
+/* 明细行 */
+.list-item{border-bottom:1px solid var(--hair);border-radius:var(--radius-xs);}
+.list-item:hover{background:rgba(184,188,194,.16);}
+.list-item.is-editable:active{background:rgba(184,188,194,.24);}
+
+/* 洞察小块：小凸起，按下回凹 */
+.insight-hero,.insight-group .insight-more{gap:12px;}
+.insight-group .insight-more{padding:12px;}
+.insight-item{background:var(--base);box-shadow:var(--raise-sm);}
+.insight-item:hover{background:var(--base);box-shadow:var(--raise-xs);}
+.insight-item:active{transform:none;box-shadow:var(--sink-xs);}
+.insight-group{border:0;background:var(--base);border-radius:var(--radius-sm);box-shadow:var(--sink-xs);}
+.insight-group[open] summary{border-bottom:1px solid var(--hair);}
+
+/* 空态与图表空态：凹进去的占位面 */
+.empty,.cp-empty{background:var(--base);border-radius:var(--radius-sm);box-shadow:var(--sink-xs);}
+.help,.bk-bar{background:rgba(109,93,252,.08);color:#4b3fd0;border-radius:var(--radius-sm);
+  box-shadow:var(--sink-xs);}
+
+/* 标签：去实色，改成同底上的一层浅色晕 */
+.tag{background:rgba(109,93,252,.1);color:#4b3fd0;}
+.tag-cash{background:rgba(109,93,252,.12);color:#4b3fd0;}
+.tag-bank{background:rgba(78,205,196,.2);color:#177a70;}
+.tag-wealth{background:rgba(255,230,109,.38);color:#8a6d00;}
+.tag-invest{background:rgba(255,169,77,.2);color:#a15a00;}
+.tag-liab{background:rgba(255,107,107,.18);color:#b23b3b;}
+
+/* 弹窗：遮罩改成同色薄雾 + 强投影，避免「深色蒙层 + 白卡」的割裂 */
+.modal-mask,.alert-mask{background:rgba(224,229,236,.72);
+  -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);}
+.modal,.alert-box{background:var(--base);box-shadow:var(--shadow-pop);}
+.alert-icon.info{background:rgba(109,93,252,.12);color:var(--primary);}
+.alert-icon.success{background:rgba(78,205,196,.22);color:#177a70;}
+.alert-icon.error{background:rgba(255,107,107,.2);color:#c0392b;}
+.alert-ok{box-shadow:3px 3px 8px rgba(109,93,252,.35),-3px -3px 8px rgba(255,255,255,.9);}
+
+/* 撤销浮层：全站唯一的深色块也改成浅色材质 */
+.undo-toast{background:var(--base);color:var(--text);
+  box-shadow:10px 10px 24px rgba(184,188,194,.7),-10px -10px 24px rgba(255,255,255,.9);}
+.undo-toast button{color:var(--primary);}
+.undo-toast button:hover{background:rgba(109,93,252,.1);}
+
+/* 窄屏：卡片内边距回落，别把手机屏塞满 */
+@media (max-width:640px){
+  .card{padding:var(--sp-4);}
+  .insight-item{min-height:0;}
+}
+
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important;}
 }
@@ -448,7 +561,7 @@ tr:last-child td{border-bottom:0;}
          animation:sheetUp .32s var(--ease);}
   @keyframes sheetUp{from{transform:translateY(40px);opacity:0;}to{transform:none;opacity:1;}}
   .modal .rows{max-height:58vh;-webkit-overflow-scrolling:touch;}
-  .modal .foot{position:sticky;bottom:0;background:#fff;padding-top:12px;}
+  .modal .foot{position:sticky;bottom:0;background:var(--base,#e0e5ec);padding-top:12px;}
   .modal .foot .btn{flex:1 1 0;text-align:center;padding:11px 16px;}
   /* 分析页表格 → 卡片：6 列在小屏只能横向拖，改成「名称一行 + 五项两列」 */
   #ana-table{overflow-x:visible;}
@@ -492,7 +605,7 @@ tr:last-child td{border-bottom:0;}
   <div class="bk-bar" id="bk-bar" style="display:none"></div>
   <div class="help" id="ov-help" style="display:none"></div>
   <div class="grid cards" id="ov-metrics"></div>
-  <div class="card" id="insight-card" style="margin-top:14px">
+  <div class="card" id="insight-card" style="margin-top:24px">
     <div class="card-head">
       <h3>花销洞察</h3>
       <span class="muted" id="insight-scope"></span>
@@ -501,7 +614,7 @@ tr:last-child td{border-bottom:0;}
     </div>
     <div id="insight-grid"></div>
   </div>
-  <div class="card" id="dca-card" style="margin-top:14px">
+  <div class="card" id="dca-card" style="margin-top:24px">
     <div class="card-head">
       <h3>每日定投</h3>
       <span style="flex:1"></span>
@@ -510,7 +623,7 @@ tr:last-child td{border-bottom:0;}
     </div>
     <div id="dca-summary"></div>
   </div>
-  <div class="grid two" style="margin-top:14px">
+  <div class="grid two" style="margin-top:24px">
     <div class="card">
       <h3>资产构成</h3>
       <div class="chart-box"><canvas id="c-ov-comp"></canvas></div>
@@ -520,7 +633,7 @@ tr:last-child td{border-bottom:0;}
       <div class="chart-box"><canvas id="c-ov-net"></canvas></div>
     </div>
   </div>
-  <div class="card" style="margin-top:14px">
+  <div class="card" style="margin-top:24px">
     <div class="card-head">
       <h3>账户</h3>
       <span style="flex:1"></span>
@@ -564,7 +677,7 @@ tr:last-child td{border-bottom:0;}
     <div class="tx-hint" id="tx-hint"></div>
   </div>
 
-  <div class="card" id="fixed-card" style="margin-top:14px">
+  <div class="card" id="fixed-card" style="margin-top:24px">
     <div class="card-head">
       <h3>每日固定支出</h3>
       <span style="flex:1"></span>
@@ -574,9 +687,9 @@ tr:last-child td{border-bottom:0;}
     <div id="fixed-summary"></div>
   </div>
 
-  <div class="grid cards" id="led-metrics" style="margin-top:14px"></div>
+  <div class="grid cards" id="led-metrics" style="margin-top:24px"></div>
 
-  <div class="grid two" style="margin-top:14px">
+  <div class="grid two" style="margin-top:24px">
     <div class="card">
       <div class="card-head">
         <h3>支出构成</h3>
@@ -591,7 +704,7 @@ tr:last-child td{border-bottom:0;}
     </div>
   </div>
 
-  <div class="card" style="margin-top:14px">
+  <div class="card" style="margin-top:24px">
     <div class="card-head">
       <h3>明细</h3>
       <span style="flex:1"></span>
@@ -616,21 +729,21 @@ tr:last-child td{border-bottom:0;}
     <div class="chart-box"><canvas id="c-ana-net"></canvas></div>
   </div>
 
-  <div class="card" style="margin-top:14px">
+  <div class="card" style="margin-top:24px">
     <h3>账户盈亏 <span class="muted" style="font-weight:400">（市值变动 − 资金进出）</span></h3>
     <div class="chart-box"><canvas id="c-ana-rate"></canvas></div>
   </div>
 
-  <div class="card" style="margin-top:14px">
+  <div class="card" style="margin-top:24px">
     <h3>账户收益明细</h3>
     <div id="ana-table"></div>
   </div>
 
-  <div class="card" style="margin-top:14px">
+  <div class="card" style="margin-top:24px">
     <h3>近 6 个月收支趋势</h3>
     <div class="chart-box"><canvas id="c-ana-exp"></canvas></div>
   </div>
-  <div class="card" style="margin-top:14px">
+  <div class="card" style="margin-top:24px">
     <div class="card-head">
       <h3>自定义周期花销</h3>
       <span style="flex:1"></span>
@@ -658,7 +771,7 @@ tr:last-child td{border-bottom:0;}
     <h3>数据说明</h3>
     <p class="muted" style="margin:0" id="data-desc"></p>
   </div>
-  <div class="card" style="margin-top:14px">
+  <div class="card" style="margin-top:24px">
     <h3>备份与恢复</h3>
     <p class="muted" style="margin:0 0 12px">定期导出 JSON 放到网盘或移动硬盘，即使数据库损坏也能完整恢复。</p>
     <div class="toolbar" style="margin-bottom:0">
@@ -669,18 +782,18 @@ tr:last-child td{border-bottom:0;}
       <input type="file" id="import-file" accept=".json" style="display:none" onchange="doImportJSON(event)">
     </div>
   </div>
-  <div class="card" style="margin-top:14px">
+  <div class="card" style="margin-top:24px">
     <h3>体验与重置</h3>
     <div class="toolbar" style="margin-bottom:0">
       <button class="btn" onclick="loadDemo()">载入示例数据（覆盖现有数据）</button>
       <button class="btn btn-danger" onclick="clearAll()">清空全部数据</button>
     </div>
   </div>
-  <div class="card" style="margin-top:14px">
+  <div class="card" style="margin-top:24px">
     <h3>当前数据规模</h3>
     <div id="data-stats" class="muted"></div>
   </div>
-  <div class="card" style="margin-top:14px">
+  <div class="card" style="margin-top:24px">
     <h3>反馈与建议</h3>
     <p class="muted" style="margin:0">如果有建议或者需求，可以发送邮件到 <a href="mailto:2817832149@qq.com" style="color:var(--primary);text-decoration:underline;white-space:nowrap">2817832149@qq.com</a>。</p>
   </div>
@@ -710,7 +823,7 @@ tr:last-child td{border-bottom:0;}
   </div>
 </div>
 
-<script src="localdb.js?v=22"></script>
+<script src="localdb.js?v=23"></script>
 <script src="lib/chart.umd.min.js"></script>
 <script>
 if (typeof Chart === 'undefined') {
@@ -722,14 +835,14 @@ if (typeof Chart === 'undefined') {
 
 /* ================= 基础配置 ================= */
 var TYPE_META = {
-  deposit:   {label:'活期',                color:'#0071e3', kind:'cash',      role:'daily'},
-  bank:      {label:'银行卡',              color:'#34c759', kind:'cash',      role:'daily'},
-  bankwealth:{label:'银行理财',            color:'#ffcc00', kind:'invest',    role:'wealth', plainLabel:true},
-  fixed:     {label:'定期存款',            color:'#30b0c7', kind:'cash',      role:'hold'},
-  stock:     {label:'股票',                color:'#ff3b30', kind:'invest',    role:'hold'},
-  fund:      {label:'基金',                color:'#ff9500', kind:'invest',    role:'hold'},
-  other:     {label:'其他资产',            color:'#5856d6', kind:'invest',    role:'hold'},
-  liability: {label:'负债',                color:'#a13ff6', kind:'liability', role:'debt'}
+  deposit:   {label:'活期',                color:'#6d5dfc', kind:'cash',      role:'daily'},
+  bank:      {label:'银行卡',              color:'#4ecdc4', kind:'cash',      role:'daily'},
+  bankwealth:{label:'银行理财',            color:'#f5cf4e', kind:'invest',    role:'wealth', plainLabel:true},
+  fixed:     {label:'定期存款',            color:'#8fb8de', kind:'cash',      role:'hold'},
+  stock:     {label:'股票',                color:'#ff6b6b', kind:'invest',    role:'hold'},
+  fund:      {label:'基金',                color:'#f2994a', kind:'invest',    role:'hold'},
+  other:     {label:'其他资产',            color:'#8f7dff', kind:'invest',    role:'hold'},
+  liability: {label:'负债',                color:'#c084fc', kind:'liability', role:'debt'}
 };
 /* 活期与银行卡同为日常可用，但在分类、构成图、汇总里各自独立。
    银行理财是独立角色，不并入活期/银行卡/长期持有任一余额。 */
@@ -774,7 +887,7 @@ function autoTxOf(kind){
 }
 var EX_CATS = ['餐饮','交通','购物','居住','娱乐','医疗','教育','通讯','人情','其他'];
 var IN_CATS = ['工资','奖金','投资收益','红包','报销','其他'];
-var CAT_COLORS = ['#0071e3','#ff9500','#ff3b30','#30b0c7','#5856d6','#af52de','#ff2d55','#34c759','#ffcc00','#8e8e93'];
+var CAT_COLORS = ['#6d5dfc','#f2994a','#ff6b6b','#3fbfb4','#8f7dff','#c084fc','#f2799a','#2fb3a4','#f5cf4e','#8d97a5'];
 var LS_KEY = 'pfa_data_v1';
 
 /* 金额隐私：默认隐藏，刷新/重新打开即恢复隐藏；点顶部眼睛切换 */
@@ -1218,6 +1331,14 @@ async function reload(){
 }
 
 /* ================= 渲染：资产总览 ================= */
+/* 图表配色：所有 canvas 取色的唯一出口，换皮肤只改这里 */
+var CHART_C = {
+  line:'#6d5dfc', lineFill:'rgba(109,93,252,.12)',
+  expense:'#ff6b6b', income:'#4ecdc4',
+  tick:'rgba(61,68,81,.62)', legend:'rgba(61,68,81,.7)', faint:'rgba(61,68,81,.45)',
+  grid:'rgba(184,188,194,.55)', empty:'#d5dbe3'
+};
+
 var charts = {};
 function draw(id, cfg){
   var el = document.getElementById(id);
@@ -1231,12 +1352,12 @@ function draw(id, cfg){
 }
 function baseOpts(extra){
   var horizontal = !!(extra && extra.indexAxis === 'y');
-  var catAxis = {grid:{display:false}, ticks:{font:{size:11}, color:'rgba(60,60,67,.62)'}, border:{display:false}};
-  var numAxis = {grid:{color:'rgba(0,0,0,.05)'}, border:{display:false},
-    ticks:{font:{size:11}, color:'rgba(60,60,67,.62)',
+  var catAxis = {grid:{display:false}, ticks:{font:{size:11}, color:CHART_C.tick}, border:{display:false}};
+  var numAxis = {grid:{color:CHART_C.grid}, border:{display:false},
+    ticks:{font:{size:11}, color:CHART_C.tick,
       callback:function(v){ return privacyOn ? '' : (Math.abs(v)>=10000 ? (v/10000)+'万' : v); }}};
   var timeAxis = {grid:{display:false}, border:{display:false},
-    ticks:{font:{size:11}, color:'rgba(60,60,67,.62)', maxTicksLimit:8, autoSkip:true, maxRotation:0}};
+    ticks:{font:{size:11}, color:CHART_C.tick, maxTicksLimit:8, autoSkip:true, maxRotation:0}};
 
   var o = {
     responsive: true,
@@ -1245,7 +1366,8 @@ function baseOpts(extra){
     plugins: {
       legend: {display:false},
       tooltip: {
-        backgroundColor:'rgba(0,0,0,.82)', padding:10, cornerRadius:8,
+        backgroundColor:'rgba(224,229,236,.97)', titleColor:'#3d4451', bodyColor:'#3d4451',
+        padding:10, cornerRadius:12,
         titleFont:{size:12}, bodyFont:{size:12},
         callbacks: {
           label: function(ctx){
@@ -1736,11 +1858,11 @@ function renderOverview(){
       },
       options: {responsive:true, maintainAspectRatio:false, cutout:'62%',
         plugins:{legend:{position:'right', labels:{boxWidth:10, boxHeight:10, font:{size:11},
-          color:'rgba(60,60,67,.7)', padding:10}},
+          color:CHART_C.legend, padding:10}},
           tooltip:{callbacks:{label:function(c){ return c.label + '：' + money(c.parsed); }}}}}
     });
   } else {
-    draw('c-ov-comp', {type:'doughnut', data:{labels:['暂无数据'], datasets:[{data:[1], backgroundColor:['#e5e7eb'], borderWidth:0}]},
+    draw('c-ov-comp', {type:'doughnut', data:{labels:['暂无数据'], datasets:[{data:[1], backgroundColor:[CHART_C.empty], borderWidth:0}]},
       options:{responsive:true, maintainAspectRatio:false, cutout:'62%', plugins:{legend:{display:false}, tooltip:{enabled:false}}}});
   }
 
@@ -1753,7 +1875,7 @@ function renderOverview(){
         labels: pts.map(function(p){ return p.date.slice(5); }),
         datasets: [{
           label: '净资产', data: pts.map(function(p){ return p.net; }),
-          borderColor: '#0071e3', backgroundColor: 'rgba(0,113,227,.08)',
+          borderColor: CHART_C.line, backgroundColor: CHART_C.lineFill,
           fill: true, tension: .3, pointRadius: 2, pointHoverRadius: 4, borderWidth: 2
         }]
       },
@@ -1764,7 +1886,7 @@ function renderOverview(){
       options: Object.assign(baseOpts(), {scales:{x:{display:false}, y:{display:false}},
         plugins:{legend:{display:false}, tooltip:{enabled:false},
         title:{display:true, text:'记账满两天后这里会出现趋势线',
-          color:'rgba(60,60,67,.45)', font:{size:12, weight:'400'}}}})});
+          color:CHART_C.faint, font:{size:12, weight:'400'}}}})});
   }
 
   /* 账户表：按 4 类角色分组；银行理财额外显示归属账户并按归属汇总 */
@@ -1778,7 +1900,7 @@ function renderOverview(){
             : role === 'hold' ? 'tag-invest' : 'tag-cash';
     return '<tr>' +
       '<td><strong>' + esc(a.name) + '</strong> ' +
-        '<button class="btn btn-sm" style="padding:1px 8px;font-size:11px" data-act="acct-edit" data-id="' + esc(a.id) + '">编辑</button>' +
+        '<button class="btn btn-sm" style="padding:3px 10px;font-size:11.5px" data-act="acct-edit" data-id="' + esc(a.id) + '">编辑</button>' +
         (a.note ? '<br><span class="muted" style="font-size:11px">' + esc(a.note) + '</span>' : '') + '</td>' +
       '<td><span class="tag ' + cls + '">' + meta.label + '</span></td>' +
       '<td class="num" style="font-variant-numeric:tabular-nums' + (b < -0.005 && !privacyOn ? ';color:var(--red)' : '') + '">' + money(b) + '</td>' +
@@ -1920,17 +2042,17 @@ function renderLedger(){
         labels: cats,
         datasets: [{
           data: cats.map(function(c){ return Math.round(m.byCat[c]*100)/100; }),
-          backgroundColor: cats.map(function(c){ return CAT_COLORS[EX_CATS.indexOf(c)] || '#8e8e93'; }),
+          backgroundColor: cats.map(function(c){ return CAT_COLORS[EX_CATS.indexOf(c)] || '#9aa4b2'; }),
           borderWidth: 0
         }]
       },
       options: {responsive:true, maintainAspectRatio:false, cutout:'62%',
         plugins:{legend:{position:'right', labels:{boxWidth:10, boxHeight:10, font:{size:11},
-          color:'rgba(60,60,67,.7)', padding:10}},
+          color:CHART_C.legend, padding:10}},
           tooltip:{callbacks:{label:function(c){ return c.label + '：' + money(c.parsed); }}}}}
     });
   } else {
-    draw('c-led-cat', {type:'doughnut', data:{labels:['暂无支出'], datasets:[{data:[1], backgroundColor:['#e5e7eb'], borderWidth:0}]},
+    draw('c-led-cat', {type:'doughnut', data:{labels:['暂无支出'], datasets:[{data:[1], backgroundColor:[CHART_C.empty], borderWidth:0}]},
       options:{responsive:true, maintainAspectRatio:false, cutout:'62%', plugins:{legend:{display:false}, tooltip:{enabled:false}}}});
   }
 
@@ -1943,12 +2065,12 @@ function renderLedger(){
     data: {
       labels: months.map(function(mm){ return mm.slice(5) + '月'; }),
       datasets: [
-        {label:'支出', data: exps, backgroundColor:'#ff3b30', maxBarThickness:18, borderRadius:4},
-        {label:'收入', data: incs, backgroundColor:'#34c759', maxBarThickness:18, borderRadius:4}
+        {label:'支出', data: exps, backgroundColor:CHART_C.expense, maxBarThickness:18, borderRadius:4},
+        {label:'收入', data: incs, backgroundColor:CHART_C.income, maxBarThickness:18, borderRadius:4}
       ]
     },
     options: baseOpts({plugins:{legend:{display:true, position:'top', align:'end',
-      labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:'rgba(60,60,67,.7)'}}}})
+      labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:CHART_C.legend}}}})
   });
 
   /* 明细 */
@@ -1973,7 +2095,7 @@ function renderLedger(){
     var acc = accountById(t.accountId);
     var sub = esc(catLabel + (acc && t.type !== 'transfer' ? ' · ' + acc.name : '') +
       (t.note ? ' · ' + t.note : ''));
-    var badge = t.auto ? '<span class="tag" style="background:rgba(0,113,227,.1);color:#0060c8">自动</span> ' : '';
+    var badge = t.auto ? '<span class="tag" style="background:rgba(109,93,252,.12);color:#4b3fd0">自动</span> ' : '';
     return '<div class="list-item' + (t.auto ? '' : ' is-editable') + '"' +
       (t.auto ? '' : ' role="button" tabindex="0" data-act="tx-edit" data-id="' + esc(t.id) + '"') + '>' +
       '<span class="muted" style="width:46px;flex:none">' + t.date.slice(5) + '</span>' +
@@ -2119,7 +2241,7 @@ function cpDrawChart(s){
     type:'bar',
     data:{labels:cats.map(function(c){ return c.cat; }),
       datasets:[{label:'支出', data:cats.map(function(c){ return c.amount; }),
-        backgroundColor:'#ff3b30', borderRadius:4, maxBarThickness:22}]},
+        backgroundColor:CHART_C.expense, borderRadius:4, maxBarThickness:22}]},
     options: opts
   });
 }
@@ -2207,7 +2329,7 @@ function renderAnalysis(){
         labels: series.map(function(p){ return p.date.slice(5); }),
         datasets: [{
           label:'净资产', data: series.map(function(p){ return p.net; }),
-          borderColor:'#0071e3', backgroundColor:'rgba(0,113,227,.08)',
+          borderColor:CHART_C.line, backgroundColor:CHART_C.lineFill,
           fill:true, tension:.3, pointRadius:2, pointHoverRadius:4, borderWidth:2
         }]
       },
@@ -2217,7 +2339,7 @@ function renderAnalysis(){
     draw('c-ana-net', {type:'line', data:{labels:[], datasets:[]},
       options: Object.assign(baseOpts(), {scales:{x:{display:false}, y:{display:false}},
         plugins:{legend:{display:false}, tooltip:{enabled:false},
-        title:{display:true, text:'所选区间内还没有足够的数据点', color:'rgba(60,60,67,.45)', font:{size:12, weight:'400'}}}})});
+        title:{display:true, text:'所选区间内还没有足够的数据点', color:CHART_C.faint, font:{size:12, weight:'400'}}}})});
   }
 
   var inv = db.accounts.filter(function(a){ return kindOf(a) === 'invest'; });
@@ -2231,7 +2353,7 @@ function renderAnalysis(){
         labels: perf.map(function(p){ return p.name; }),
         datasets: [{
           label:'盈亏金额', data: perf.map(function(p){ return Math.round(p.gain*100)/100; }),
-          backgroundColor: perf.map(function(p){ return p.gain >= 0 ? '#ff3b30' : '#34c759'; }),
+          backgroundColor: perf.map(function(p){ return p.gain >= 0 ? CHART_C.expense : CHART_C.income; }),
           borderRadius: 4, maxBarThickness: 40
         }]
       },
@@ -2241,7 +2363,7 @@ function renderAnalysis(){
     draw('c-ana-rate', {type:'bar', data:{labels:[], datasets:[]},
       options: Object.assign(baseOpts({indexAxis:'y'}), {scales:{x:{display:false}, y:{display:false}},
         plugins:{legend:{display:false}, tooltip:{enabled:false},
-        title:{display:true, text:'还没有股票 / 基金类账户', color:'rgba(60,60,67,.45)', font:{size:12, weight:'400'}}}})});
+        title:{display:true, text:'还没有股票 / 基金类账户', color:CHART_C.faint, font:{size:12, weight:'400'}}}})});
   }
 
   var rows = perf.map(function(p){
@@ -2274,14 +2396,14 @@ function renderAnalysis(){
     data: {
       labels: months.map(function(mm){ return mm.slice(5) + '月'; }),
       datasets: [
-        {label:'收入', data: incs, backgroundColor:'#34c759', maxBarThickness:16, borderRadius:4},
-        {label:'支出', data: exps, backgroundColor:'#ff3b30', maxBarThickness:16, borderRadius:4},
-        {label:'结余', type:'line', data: bal, borderColor:'#0071e3', tension:.3,
+        {label:'收入', data: incs, backgroundColor:CHART_C.income, maxBarThickness:16, borderRadius:4},
+        {label:'支出', data: exps, backgroundColor:CHART_C.expense, maxBarThickness:16, borderRadius:4},
+        {label:'结余', type:'line', data: bal, borderColor:CHART_C.line, tension:.3,
           pointRadius:2, borderWidth:2, fill:false}
       ]
     },
     options: baseOpts({plugins:{legend:{display:true, position:'top', align:'end',
-      labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:'rgba(60,60,67,.7)'}}}})
+      labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:CHART_C.legend}}}})
   });
   cpRender();
 }
@@ -2524,7 +2646,7 @@ function renderDca(){
     ? '<span class="tag" style="background:var(--fill);color:var(--muted)">已暂停</span>'
     : invalid
       ? '<span class="tag" style="background:var(--red-weak);color:var(--red)">账户失效</span>'
-      : '<span class="tag" style="background:rgba(52,199,89,.14);color:#248a3d">运行中</span>';
+      : '<span class="tag" style="background:rgba(78,205,196,.22);color:#177a70">运行中</span>';
   var line1 = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
       '<span style="font-size:17px;font-weight:600;font-variant-numeric:tabular-nums">' + money(c.amount) + '</span>' +
       '<span class="muted">/ ' + (c.weekdaysOnly ? '工作日' : '每天') + '</span>' +
@@ -2646,7 +2768,7 @@ function renderFixed(){
     ? '<span class="tag" style="background:var(--fill);color:var(--muted)">已停用</span>'
     : invalid
       ? '<span class="tag" style="background:var(--red-weak);color:var(--red)">账户失效</span>'
-      : '<span class="tag" style="background:rgba(52,199,89,.14);color:#248a3d">运行中</span>';
+      : '<span class="tag" style="background:rgba(78,205,196,.22);color:#177a70">运行中</span>';
   var line1 = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
     '<span style="font-size:17px;font-weight:600;font-variant-numeric:tabular-nums">' + money(c.amount) + '</span>' +
     '<span class="muted">/ ' + (c.weekdaysOnly ? '工作日' : '每天') + '</span>' +
@@ -3197,7 +3319,7 @@ cpInit();
 
   if (typeof Chart !== 'undefined'){
     Chart.defaults.font.family = '-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif';
-    Chart.defaults.color = 'rgba(60,60,67,.6)';
+    Chart.defaults.color = CHART_C.tick;
     Chart.defaults.font.size = 11;
   }
 
