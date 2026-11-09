@@ -699,7 +699,7 @@ tr:last-child td{border-bottom:0;}
   </div>
 </div>
 
-<script src="localdb.js?v=21"></script>
+<script src="localdb.js?v=22"></script>
 <script src="lib/chart.umd.min.js"></script>
 <script>
 if (typeof Chart === 'undefined') {
@@ -832,20 +832,46 @@ function applyTx(bal, t){
   else if (t.type === 'expense') bal[t.accountId] = (bal[t.accountId] || 0) - a;
 }
 
-function currentBalances(){
+/* ---------- 派生结果缓存 ----------
+   db 只在 reload() 里整体替换，所以用「db 引用」当缓存版本：引用一变，全部派生结果
+   自动失效，不必在每个写接口里手动清理。要缓存的原因：
+   · currentBalances 被 sumRole×3、renderOverview、输入预览反复调用，
+     金额框每敲一个键就算两次全量余额；
+   · monthStats 在一次完整渲染里被调用 30 次，不缓存就是同一次全量扫描做 30 遍；
+   · buildSeries 是「日期 × 账户」的双层循环，资产页和分析页各算一遍。
+   缓存对象只读，调用方不得原地修改。 */
+var _cache = {db:null, txAll:null, balances:null, months:null, series:null, size:null};
+function cache(){
+  if (_cache.db !== db){
+    _cache = {db:db, txAll:null, balances:null, months:null, series:null, size:null};
+  }
+  return _cache;
+}
+/* 真实流水 + 虚拟流水：多处都要用同一份合并结果，省掉每次 concat 的数组复制 */
+function allTx(){
+  var c = cache();
+  if (!c.txAll) c.txAll = db.transactions.concat(db.autoTx);
+  return c.txAll;
+}
+
+function computeBalances(){
+  var t0 = today();
   var bal = {};
   db.accounts.forEach(function(a){ bal[a.id] = 0; });
   db.accounts.forEach(function(a){
-    if (!a.initial_date || a.initial_date <= today()) bal[a.id] += a.initial_balance;
+    if (!a.initial_date || a.initial_date <= t0) bal[a.id] += a.initial_balance;
   });
-  db.transactions.forEach(function(t){
-    if (t.date <= today()) applyTx(bal, t);
-  });
-  /* 每日定投：虚拟转账只参与余额推导，不写库、不进明细、不计收支 */
-  db.autoTx.forEach(function(t){
-    if (t.date <= today()) applyTx(bal, t);
+  /* 每日定投/固定支出：虚拟流水只参与余额推导，不写库、不进明细、不计收支 */
+  allTx().forEach(function(t){
+    if (t.date <= t0) applyTx(bal, t);
   });
   return bal;
+}
+
+function currentBalances(){
+  var c = cache();
+  if (!c.balances) c.balances = computeBalances();
+  return c.balances;
 }
 
 function netOf(bal){
@@ -858,16 +884,19 @@ function netOf(bal){
 }
 
 function buildSeries(){
+  var c = cache();
+  if (c.series) return c.series;
+  var t0 = today();
   var byDate = {};
   /* 自动支出会让净资产逐日减少，必须进入时间序列；定投 transfer 不改变净资产 */
-  db.transactions.concat(db.autoTx).forEach(function(t){
+  allTx().forEach(function(t){
     (byDate[t.date] = byDate[t.date] || []).push(t);
   });
   var set = {};
   Object.keys(byDate).forEach(function(d){ set[d] = 1; });
   db.accounts.forEach(function(a){ if (a.initial_date) set[a.initial_date] = 1; });
-  set[today()] = 1;
-  var dates = Object.keys(set).sort().filter(function(d){ return d <= today(); });
+  set[t0] = 1;
+  var dates = Object.keys(set).sort().filter(function(d){ return d <= t0; });
 
   var bal = {}, applied = {};
   db.accounts.forEach(function(a){ bal[a.id] = 0; });
@@ -884,24 +913,37 @@ function buildSeries(){
     var n = netOf(bal);
     out.push({date: d, net: n.net, assets: n.assets, liab: n.liab});
   });
+  c.series = out;
   return out;
 }
 
 function monthKey(d){ return d.slice(0,7); }
 
-function monthStats(month){
-  var inc = 0, exp = 0, cnt = 0, byCat = {};
-  /* 自动固定支出要计入收支统计；定投是 transfer，天然不会被统计 */
-  db.transactions.concat(db.autoTx).forEach(function(t){
-    if (monthKey(t.date) !== month) return;
+/* 月份索引：一次遍历建好全部月份。renderLedger + renderAnalysis 一次渲染要取
+   30 个月份的收支，逐月全表扫描等于把同一份数据扫 30 遍。 */
+function monthIndex(){
+  var c = cache();
+  if (c.months) return c.months;
+  var t0 = today(), idx = {};
+  /* 自动固定支出计入收支统计；定投是 transfer，天然不会被统计。
+     未来日期的记录尚未生效，与余额、周期统计保持同一口径，这里统一排除。 */
+  allTx().forEach(function(t){
+    if (t.date > t0) return;
+    var k = monthKey(t.date);
+    var m = idx[k] || (idx[k] = {income:0, expense:0, count:0, byCat:{}, balance:0});
     if (t.type === 'income'){
-      inc += t.amount; cnt++;
+      m.income += t.amount; m.count++;
     } else if (t.type === 'expense'){
-      exp += t.amount; cnt++;
-      byCat[t.category] = (byCat[t.category] || 0) + t.amount;
+      m.expense += t.amount; m.count++;
+      m.byCat[t.category] = (m.byCat[t.category] || 0) + t.amount;
     }
   });
-  return {income: inc, expense: exp, count: cnt, byCat: byCat, balance: inc - exp};
+  Object.keys(idx).forEach(function(k){ idx[k].balance = idx[k].income - idx[k].expense; });
+  c.months = idx;
+  return idx;
+}
+function monthStats(month){
+  return monthIndex()[month] || {income:0, expense:0, count:0, byCat:{}, balance:0};
 }
 
 function lastMonths(n){
@@ -918,7 +960,7 @@ function lastMonths(n){
 function accountPerf(a, balNow){
   var t0 = today();
   var invested = 0, withdrawn = 0, hasMarket = false;
-  db.transactions.concat(db.autoTx).forEach(function(t){
+  allTx().forEach(function(t){
     if (t.date > t0) return;
     if (t.type === 'transfer'){
       if (t.toAccountId === a.id) invested += t.amount;
@@ -1056,7 +1098,11 @@ document.addEventListener('keydown', function(e){
     e.preventDefault(); e.stopPropagation(); closeAlert();
   }
 }, true);
+/* 提示类型不再靠中文文案正则去猜：成功/失败由调用点显式声明。
+   alertKind() 里的正则只作为兜底，留给「请填写金额」这类中性校验提示。 */
 window.alert = function(msg){ showAlert(msg); };
+window.alert.error = function(msg){ showAlert(msg, {kind:'error'}); };
+window.alert.success = function(msg){ showAlert(msg, {kind:'success'}); };
 
 /* ================= 表单弹窗 ================= */
 var modalOK = null;
@@ -1083,7 +1129,7 @@ document.getElementById('modal-ok').addEventListener('click', async function(){
     var r = await modalOK();
     if (r !== false) closeModal();
   } catch(e){
-    alert(e.message || '保存失败');
+    alert.error(e.message || '保存失败');
   } finally {
     btn.disabled = false;
   }
@@ -1165,7 +1211,11 @@ var charts = {};
 function draw(id, cfg){
   var el = document.getElementById(id);
   if (!el || typeof Chart === 'undefined') return;
-  if (charts[id]) charts[id].destroy();
+  var prev = charts[id];
+  if (prev) prev.destroy();
+  /* 重绘（切页签、记完一笔后刷新）不再重放生长动画：数据没变却整片重新长一遍很跳。
+     首次绘制仍然带动画；Chart.js 建实例时会缓存动画配置，所以必须在构造前改。 */
+  if (prev && cfg.options && cfg.options.animation === undefined) cfg.options.animation = false;
   charts[id] = new Chart(el, cfg);
 }
 function baseOpts(extra){
@@ -1235,7 +1285,7 @@ function isWeekend(iso){
 function spendIn(from, to){
   var t0 = today();
   var end = to > t0 ? t0 : to;
-  return db.transactions.concat(db.autoTx).filter(function(t){
+  return allTx().filter(function(t){
     return t.type === 'expense' && t.date >= from && t.date <= end && t.date <= t0;
   });
 }
@@ -1717,14 +1767,14 @@ function renderOverview(){
             : role === 'hold' ? 'tag-invest' : 'tag-cash';
     return '<tr>' +
       '<td><strong>' + esc(a.name) + '</strong> ' +
-        '<button class="btn btn-sm" style="padding:1px 8px;font-size:11px" onclick="openEditAccountModal(\'' + a.id + '\')">编辑</button>' +
+        '<button class="btn btn-sm" style="padding:1px 8px;font-size:11px" data-act="acct-edit" data-id="' + esc(a.id) + '">编辑</button>' +
         (a.note ? '<br><span class="muted" style="font-size:11px">' + esc(a.note) + '</span>' : '') + '</td>' +
       '<td><span class="tag ' + cls + '">' + meta.label + '</span></td>' +
       '<td class="num" style="font-variant-numeric:tabular-nums' + (b < -0.005 && !privacyOn ? ';color:var(--red)' : '') + '">' + money(b) + '</td>' +
       '<td style="text-align:right;white-space:nowrap">' +
-        '<button class="btn btn-sm" onclick="openRevalueModal(\'' + a.id + '\')">更新余额</button> ' +
-        '<button class="btn btn-sm" onclick="openTransferModal(\'' + a.id + '\')">转账</button> ' +
-        '<button class="btn btn-sm btn-danger" onclick="delAccount(\'' + a.id + '\')">删除</button>' +
+        '<button class="btn btn-sm" data-act="acct-revalue" data-id="' + esc(a.id) + '">更新余额</button> ' +
+        '<button class="btn btn-sm" data-act="acct-transfer" data-id="' + esc(a.id) + '">转账</button> ' +
+        '<button class="btn btn-sm btn-danger" data-act="acct-delete" data-id="' + esc(a.id) + '">删除</button>' +
       '</td></tr>';
   }
 
@@ -1914,14 +1964,14 @@ function renderLedger(){
       (t.note ? ' · ' + t.note : ''));
     var badge = t.auto ? '<span class="tag" style="background:rgba(0,113,227,.1);color:#0060c8">自动</span> ' : '';
     return '<div class="list-item' + (t.auto ? '' : ' is-editable') + '"' +
-      (t.auto ? '' : ' role="button" tabindex="0" onclick="openTxModal(\'' + t.id + '\')"') + '>' +
+      (t.auto ? '' : ' role="button" tabindex="0" data-act="tx-edit" data-id="' + esc(t.id) + '"') + '>' +
       '<span class="muted" style="width:46px;flex:none">' + t.date.slice(5) + '</span>' +
       '<span class="grow"><span>' + badge + sub + '</span></span>' +
       '<span class="amt ' + (t.type === 'expense' ? 'neg' : (t.type === 'income' ? 'pos' : 'muted')) + '">' +
         (t.type === 'transfer' ? money(t.amount) : sign + num(t.amount)) + '</span>' +
       (t.auto
         ? '<span class="muted" style="font-size:11px;white-space:nowrap">规则生成</span>'
-        : '<button class="btn btn-sm" onclick="event.stopPropagation();delTx(\'' + t.id + '\')">删</button>') +
+        : '<button class="btn btn-sm" data-act="tx-delete" data-id="' + esc(t.id) + '">删</button>') +
       '</div>';
   }).join('') : '<div class="empty">这个月还没有记录</div>';
 }
@@ -1930,6 +1980,9 @@ function renderLedger(){
 var CP_DAY_KEY = 'jizhang.cp.day';
 var cpDayMem = 1;
 var CP_LAST = null;
+/* 当前区间的锚点日。短月会把 31 号压到 30/28 号，若每次都拿「当前输入的日」翻月，
+   1/31 → 2/28 → 3/28 会越翻越偏；记住锚点日后翻回长月能回到 31 号。 */
+var CP_ANCHOR = 0;
 
 function cpGetDay(){
   try {
@@ -1962,7 +2015,8 @@ function cpCycle(day, offset){
   };
 }
 function cpPreset(offset){
-  var c = cpCycle(cpGetDay(), offset);
+  CP_ANCHOR = cpGetDay();
+  var c = cpCycle(CP_ANCHOR, offset);
   document.getElementById('cp-from').value = c.from;
   document.getElementById('cp-to').value = c.to;
   cpRender();
@@ -1973,14 +2027,16 @@ function cpShift(delta){
   if (!fi || !ti || !fi.value || !ti.value) return;
   var f = new Date(fi.value + 'T00:00:00'), t = new Date(ti.value + 'T00:00:00');
   if (isNaN(f.getTime()) || isNaN(t.getTime())) return;
-  fi.value = cpISO(cpAnchor(f.getFullYear(), f.getMonth() + delta, f.getDate()));
-  ti.value = cpISO(cpAnchor(t.getFullYear(), t.getMonth() + delta, t.getDate()));
+  var day = CP_ANCHOR || f.getDate();
+  fi.value = cpISO(cpAnchor(f.getFullYear(), f.getMonth() + delta, day));
+  ti.value = cpISO(cpAnchor(t.getFullYear(), t.getMonth() + delta, day));
+  CP_ANCHOR = day;
   cpRender();
 }
 function cpStats(from, to){
   var end = to > today() ? today() : to;
   var inc = 0, exp = 0, expCnt = 0, auto = 0, byCat = {}, list = [];
-  (db.transactions || []).concat(db.autoTx || []).forEach(function(t){
+  allTx().forEach(function(t){
     if (!t.date || t.date < from || t.date > end) return;
     var a = t.amount || 0;
     if (t.type === 'income'){
@@ -2113,8 +2169,15 @@ function cpInit(){
   sel.innerHTML = opts;
   sel.value = String(cpGetDay());
   sel.addEventListener('change', function(){ cpSetDay(+sel.value); cpPreset(0); });
-  document.getElementById('cp-from').addEventListener('change', cpRender);
-  document.getElementById('cp-to').addEventListener('change', cpRender);
+  /* 手填起止日后，把起点/终点的「日」当作新锚点，翻月时按它对齐 */
+  document.getElementById('cp-from').addEventListener('change', function(){
+    CP_ANCHOR = +this.value.slice(8,10) || CP_ANCHOR;
+    cpRender();
+  });
+  document.getElementById('cp-to').addEventListener('change', function(){
+    CP_ANCHOR = +this.value.slice(8,10) || CP_ANCHOR;
+    cpRender();
+  });
   cpPreset(0);
 }
 
@@ -2213,9 +2276,16 @@ function renderAnalysis(){
 }
 
 /* ================= 渲染：数据 ================= */
+/* 数据规模：stringify 整个 db（含逐日派生的虚拟流水）不便宜，按 db 引用缓存一次 */
+function dataSize(){
+  var c = cache();
+  if (c.size == null){
+    try { c.size = JSON.stringify(db).length; } catch(e){ c.size = 0; }
+  }
+  return c.size;
+}
 function renderData(){
-  var bytes = 0;
-  try { bytes = JSON.stringify(db).length; } catch(e){}
+  var bytes = dataSize();
   document.getElementById('data-stats').textContent =
     '账户 ' + db.accounts.length + ' 个 · 流水 ' + db.transactions.length + ' 条 · 自动 ' +
     db.autoTx.length + ' 笔 · 约 ' + (bytes/1024).toFixed(1) + ' KB';
@@ -2270,7 +2340,7 @@ async function submitTx(ev){
     await reload();
     document.getElementById('tx-amount').focus();
   } catch(e){
-    alert(e.message);
+    alert.error(e.message);
   } finally {
     btn.disabled = false;
   }
@@ -2326,7 +2396,7 @@ async function delTx(id){
       }});
       await reload();
     });
-  } catch(e){ alert(e.message); }
+  } catch(e){ alert.error(e.message); }
 }
 
 /* ================= 交互：编辑流水 ================= */
@@ -2397,7 +2467,7 @@ function openTxModal(id){
       await api('/api/transactions/' + id, {method: 'PUT', body: payload});
       await reload();
     } catch(e){
-      alert(e.message);
+      alert.error(e.message);
       return false;
     }
   }, '保存');
@@ -2519,9 +2589,9 @@ function openDcaModal(){
     try {
       await api('/api/dca', {method:'POST', body: payload});
       await reload();
-      alert(isFirst ? '定投已开启，余额已按起始日结算。' : '配置已更新。');
+      alert.success(isFirst ? '定投已开启，余额已按起始日结算。' : '配置已更新。');
     } catch(e){
-      alert(e.message || '保存失败');
+      alert.error(e.message || '保存失败');
       return false;
     }
   });
@@ -2533,8 +2603,8 @@ async function removeDca(){
   try {
     await api('/api/dca', {method:'DELETE'});
     await reload();
-    alert('定投配置已清除。');
-  } catch(e){ alert('清除失败：' + e.message); }
+    alert.success('定投配置已清除。');
+  } catch(e){ alert.error('清除失败：' + e.message); }
 }
 
 /* ================= 每日固定支出 ================= */
@@ -2639,9 +2709,9 @@ function openFixedModal(){
     try {
       await api('/api/fixed', {method:'POST', body: payload});
       await reload();
-      alert(isFirst ? '固定支出已开启，余额已按起始日结算。' : '配置已更新。');
+      alert.success(isFirst ? '固定支出已开启，余额已按起始日结算。' : '配置已更新。');
     } catch(e){
-      alert(e.message || '保存失败');
+      alert.error(e.message || '保存失败');
       return false;
     }
   });
@@ -2653,7 +2723,7 @@ async function removeFixed(){
   try {
     await api('/api/fixed', {method:'DELETE'});
     await reload();
-    alert('固定支出配置已清除。');
+    alert.success('固定支出配置已清除。');
   } catch(e){ alert('清除失败：' + e.message); }
 }
 
@@ -2716,9 +2786,9 @@ function openEditAccountModal(aid){
       try {
         await api('/api/accounts/' + aid, {method:'PUT', body: payload});
         await reload();
-        alert('账户已更新。');
+        alert.success('账户已更新。');
       } catch(e){
-        alert(e.message || '保存失败');
+        alert.error(e.message || '保存失败');
         return false;
       }
     });
@@ -2735,7 +2805,7 @@ function openRevalueModal(aid){
       '<input type="number" id="rv-value" step="0.01" value="' +
         (privacyOn ? '' : bal.toFixed(2)) + '"' +
         (privacyOn ? ' placeholder="请输入实际金额（当前金额已隐藏）"' : '') + '></div>' +
-    '<div class="field"><label>日期</label><input type="date" id="rv-date" value="' + today() + '"></div>' +
+    '<div class="field"><label>日期</label><input type="date" id="rv-date" max="' + today() + '" value="' + today() + '"></div>' +
     '<span class="muted" style="font-size:11.5px">' +
       (isCash
         ? '只需在余额对不上时用（比如漏记了一笔）。系统会把差额记成「余额调整」，不影响收支统计。'
@@ -2816,7 +2886,7 @@ async function delAccount(id){
       await api('/api/accounts/' + id, {method:'DELETE'});
       await reload();
     } catch(e){
-      alert(e.message);
+      alert.error(e.message);
       return false;
     }
   }, txs.length ? '仍然删除' : '删除', false, 'btn-danger');
@@ -3042,6 +3112,39 @@ async function loadDemo(){
 }
 
 /* ================= 启动 ================= */
+/* 统一的事件委托：带 data-act 的元素由这里分发。
+   列表里的记录 id 来自用户数据（可能是导入的备份），只作为 data-id 属性输出并经 esc() 转义，
+   不再拼进内联 onclick 的 JS 字符串——否则 id 里一个引号就能执行任意脚本。 */
+var ACTIONS = {
+  'acct-edit': openEditAccountModal,
+  'acct-revalue': openRevalueModal,
+  'acct-transfer': openTransferModal,
+  'acct-delete': delAccount,
+  'tx-edit': openTxModal,
+  'tx-delete': delTx
+};
+function runAction(el){
+  var fn = ACTIONS[el.getAttribute('data-act')];
+  if (!fn) return;
+  var id = el.getAttribute('data-id');
+  /* 内联 onclick 已移除，这里补上 Promise 返回值的错误出口 */
+  var r = id == null ? fn() : fn(id);
+  if (r && r.catch) r.catch(function(e){ alert.error((e && e.message) || '操作失败'); });
+}
+document.addEventListener('click', function(e){
+  var el = e.target.closest('[data-act]');
+  if (el) runAction(el);
+});
+/* 明细行是 div[role=button]，键盘 Enter/Space 需要显式响应；
+   button 元素自身已产生 click，跳过以免重复触发 */
+document.addEventListener('keydown', function(e){
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  var el = e.target.closest('[data-act]');
+  if (!el || el.tagName === 'BUTTON') return;
+  e.preventDefault();
+  runAction(el);
+});
+
 document.getElementById('nav').addEventListener('click', function(e){
   var btn = e.target.closest('button[data-tab]');
   if (!btn) return;

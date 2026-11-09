@@ -436,6 +436,8 @@
   function revalue(d) {
     var aid = clip(d.account_id, 40);
     var date = checkDate(d.date || todayStr());
+    /* 差额按「截至今天」的余额算，写到未来日期当天不生效，下次会重复生成同额调整 */
+    if (date > todayStr()) date = todayStr();
     var target = Number(d.value);
     if (!isFinite(target) || Math.abs(target) > MAX_AMOUNT) throw new Error('市值超出允许范围');
     target = Math.round(target * 100) / 100;
@@ -574,7 +576,6 @@
       var aid = oldId || newId();
       if (ids[aid]) aid = newId();
       ids[aid] = 1;
-      a.__newId = aid;
       var typ = normalizeType(a.type);
       if (!ACCOUNT_TYPES[typ]) typ = 'other';
       var bal = Number(a.initial_balance || 0);
