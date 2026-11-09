@@ -111,12 +111,19 @@ canvas{max-width:100%;}
   align-items:center;justify-content:center;gap:4px;background:var(--card);
   color:var(--muted);font-size:13px;cursor:pointer;}
 .cp-empty span{font-size:var(--fs-caption);color:var(--faint);}
-/* 自定义周期：窄屏把日期控件分成两列，按钮单独占一行 */
+/* 上期/下期：成组等宽、永远同一行；整组宽度对齐左边的日期框 */
+.cp-nav{display:flex;gap:8px;flex:0 0 148px;}
+.cp-nav .btn{flex:1 1 0;min-width:0;padding-left:0;padding-right:0;}
+/* 控件宽度写在样式里而不是内联：内联 width 会压过下面窄屏的 width:100%，
+   导致 640px 以下输入框比容器还宽几个像素 */
+.cp-bar .field>input{width:150px;}
+.cp-bar .field>select{width:82px;}
+/* 自定义周期：窄屏把日期控件分成两列，翻页按钮整组占一行 */
 @media (max-width:640px){
   .cp-bar{gap:10px;}
   .cp-bar .field{flex:1 1 calc(50% - 5px);min-width:0;}
   .cp-bar .field>input,.cp-bar .field>select{width:100%;min-width:0;}
-  .cp-bar>button{flex:1 1 30%;}
+  .cp-nav{flex:1 1 100%;}
 }
 
 /* 卡片：Apple 式发丝边界 + 极轻投影，层次靠表面色差而非重阴影 */
@@ -629,11 +636,13 @@ tr:last-child td{border-bottom:0;}
       <button class="btn btn-sm" type="button" onclick="cpOpenDetail(null)">详细数据</button>
     </div>
     <div class="toolbar cp-bar" style="margin-bottom:10px">
-      <div class="field"><label for="cp-from">周期起</label><input type="date" id="cp-from" style="width:150px"></div>
-      <div class="field"><label for="cp-to">周期止</label><input type="date" id="cp-to" style="width:150px"></div>
-      <div class="field"><label for="cp-day">发薪日</label><select id="cp-day" style="width:82px"></select></div>
-      <button class="btn" type="button" onclick="cpShift(-1)">上期</button>
-      <button class="btn" type="button" onclick="cpShift(1)">下期</button>
+      <div class="field"><label for="cp-from">周期起</label><input type="date" id="cp-from"></div>
+      <div class="field"><label for="cp-to">周期止</label><input type="date" id="cp-to"></div>
+      <div class="field"><label for="cp-day">发薪日</label><select id="cp-day"></select></div>
+      <div class="cp-nav">
+        <button class="btn" type="button" onclick="cpShift(-1)">上期</button>
+        <button class="btn" type="button" onclick="cpShift(1)">下期</button>
+      </div>
     </div>
     <div class="chart-box" id="cp-chart-box"><canvas id="cp-chart"></canvas>
       <div id="cp-empty" class="cp-empty" style="display:none" onclick="cpOpenDetail(null)">这个周期还没有支出记录<span>点击查看详细数据</span></div>
