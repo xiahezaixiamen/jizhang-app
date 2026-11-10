@@ -1194,6 +1194,17 @@ var p = String(iso || '').split('-');
 var d = new Date(+p[0], +p[1] - 1, +p[2]);
 return isNaN(d.getTime()) ? '' : '周' + '日一二三四五六'.charAt(d.getDay());
 }
+/* 这批结果是否跨了年份：跨了才在分组头显示 YYYY-MM-DD */
+function ledSpansYears(rows){
+var y = '';
+for (var i = 0; i < rows.length; i++){
+var yy = String(rows[i].date || '').slice(0, 4);
+if (!yy) continue;
+if (!y) y = yy;
+else if (yy !== y) return true;
+}
+return false;
+}
 /* 类别下拉：支出 + 收入分类去重，末尾追加「转账」（转账没有分类） */
 function ledFillFilterSelects(){
 var cat = ledEl('led-cat'), acct = ledEl('led-acct');
@@ -1304,6 +1315,9 @@ if (t.type === 'expense') d.expense += t.amount;
 else if (t.type === 'income') d.income += t.amount;
 });
 var shown = rows.slice(0, ledShown);
+/* 结果跨年时才给日期补上年份：两年前的 11-10 和今年的不能长得一样；
+单月/单年视图继续用短格式，不给眼睛加噪音。 */
+var withYear = ledSpansYears(rows);
 var html = '', lastDate = '';
 shown.forEach(function(t){
 if (t.date !== lastDate){
@@ -1312,7 +1326,8 @@ var s = daySum[t.date] || {expense: 0, income: 0};
 var parts = [];
 if (s.expense) parts.push('支出 −' + money(s.expense));
 if (s.income) parts.push('收入 +' + money(s.income));
-html += '<div class="led-day"><span>' + esc(String(t.date).slice(5)) + ' ' +
+var dayLabel = withYear ? String(t.date) : String(t.date).slice(5);
+html += '<div class="led-day"><span>' + esc(dayLabel) + ' ' +
 ledWeekday(t.date) + '</span><span>' + parts.join(' · ') + '</span></div>';
 }
 html += ledRowHtml(t);
