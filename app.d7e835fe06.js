@@ -1,4 +1,5 @@
 'use strict';
+'use strict';
 var TYPE_META = {
 deposit:   {label:'活期',                color:'#0071e3', kind:'cash',      role:'daily'},
 bank:      {label:'银行卡',              color:'#34c759', kind:'cash',      role:'daily'},
@@ -470,6 +471,7 @@ async function reload(){
 db = normalize(await api('/api/data'));
 renderAll();
 }
+;
 /* ================= 渲染：资产总览 ================= */
 var charts = {};
 function draw(id, cfg){
@@ -1035,6 +1037,7 @@ return '<div class="metric"><div class="lab">' + lab + '</div>' +
 (ri == null ? '' : ' data-ri="' + ri + '"') + '>' + val + '</div>' +
 '<div class="foot">' + foot + '</div></div>';
 }
+;
 /* ================= 渲染：记账 ================= */
 function fillCatSelect(){
 var cats = txType === 'income' ? IN_CATS : EX_CATS;
@@ -1218,6 +1221,7 @@ return '<div class="list-item' + (t.auto ? '' : ' is-editable') + '"' +
 (list.length - ledShown) + ' 条）</button></div>'
 : '');
 }
+;
 /* ============ 自定义周期花销：发薪日不固定，按任意起止区间统计 ============ */
 var CP_DAY_KEY = 'jizhang.cp.day';
 var cpDayMem = 1;
@@ -1541,6 +1545,7 @@ stopRoll();
 ROLL_SLOTS.length = 0;
 tabById(activeTab).render();
 }
+;
 /* ================= 渲染：算薪（实时收入计数器） ================= */
 /* 口径：月薪 ÷ 月工作天数 = 日薪；日薪 ÷ 每日净工作秒数 = 秒薪；
 今日已赚按「上班 → 当前」的净工作秒数匀速累加，午休/下班后不再增长。
@@ -1772,6 +1777,7 @@ salStaticText();
 salPaint();
 salTimer = setInterval(salPaint, 200);
 }
+;
 /* ================= 交互：记账 ================= */
 async function submitTx(ev){
 ev.preventDefault();
@@ -2069,6 +2075,7 @@ await reload();
 alert.success('定投配置已清除。');
 } catch(e){ alert.error('清除失败：' + e.message); }
 }
+;
 /* ================= 每日固定支出（多条规则） ================= */
 /* db.fixed 是所有规则的「版本合集」；按 ruleId 分组后，每组最后一条版本即该规则当前配置。
 后端按规则分组派生自动流水，因此同一天可以有多笔自动支出。 */
@@ -2488,6 +2495,7 @@ return false;
 }
 }, txs.length ? '仍然删除' : '删除', false, 'btn-danger');
 }
+;
 /* ================= 交互：备份 ================= */
 function download(name, text, type){
 var blob = new Blob([text], {type: type || 'application/json;charset=utf-8'});
@@ -2690,6 +2698,7 @@ alert('示例数据已载入：' + res.accounts + ' 个账户、' + res.transact
 alert('载入失败：' + e.message);
 }
 }
+;
 var ACTIONS = {
 'acct-edit': openEditAccountModal,
 'acct-revalue': openRevalueModal,
