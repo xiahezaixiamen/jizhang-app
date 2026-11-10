@@ -134,7 +134,8 @@ db.accounts.forEach(function(a){ bal[a.id] = 0; });
 db.accounts.forEach(function(a){
 if (!a.initial_date || a.initial_date <= t0) bal[a.id] += a.initial_balance;
 });
-/* 每日定投/固定支出：虚拟流水只参与余额推导，不写库、不进明细、不计收支 */
+/* 每日定投/固定支出：虚拟流水不写库，只参与余额推导；
+明细里会展示，是否计入收支由 monthIndex 按 type 决定（transfer 不计） */
 allTx().forEach(function(t){
 if (t.date <= t0) applyTx(bal, t);
 });
@@ -1123,12 +1124,13 @@ document.getElementById('tx-submit').textContent = (t === 'transfer') ? '转账'
 if (t !== 'transfer') fillCatSelect();
 fillAccountSelects();
 }
-/* 明细分批渲染：一次最多上 LED_PAGE 条 DOM，点「显示更多」再追加一批。
-月份变化自动重置；切页签、记一笔不会把已展开的页数收回去。 */
+/* 明细分批渲染 + 筛选：一次最多上 LED_PAGE 条 DOM，点「显示更多」再追加一批。
+筛选是纯前端过滤（数据本来就在内存里），不改后端接口。
+切页签、记一笔不会把已展开的页数收回去；只有改筛选条件才回到第一批。 */
 var LED_PAGE = 50, ledShown = LED_PAGE, ledMonth = '';
 function ledMore(){
 ledShown += LED_PAGE;
-renderLedger();
+renderLedList();
 }
 function renderLedger(){
 ROLL_SLOTS.length = 0;
@@ -1180,34 +1182,104 @@ datasets: [
 options: baseOpts({plugins:{legend:{display:true, position:'top', align:'end',
 labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:'rgba(60,60,67,.7)'}}}})
 });
-/* 明细 */
-document.getElementById('led-month-label').textContent = month;
-/* 自动固定支出显示在明细里，标「自动」；单条删除写排除记录，规则本身不动 */
-var list = db.transactions.concat(autoTxOf(AUTO_KIND.FIXED))
-.filter(function(t){ return monthKey(t.date) === month; })
-.sort(function(x,y){ return x.date < y.date ? 1 : (x.date > y.date ? -1 : 0); });
-var shown = list.slice(0, ledShown);
-document.getElementById('led-list').innerHTML =
-(shown.length ? shown.map(function(t){
-var sign, cls, catLabel;
-if (t.type === 'expense'){ sign = '−'; cls = 'neg'; catLabel = t.category; }
-else if (t.type === 'income'){ sign = '+'; cls = 'pos'; catLabel = t.category; }
-else if (t.type === 'transfer'){
-sign = ''; cls = 'muted';
+/* 明细：先把筛选栏的下拉补齐，再渲染列表 */
+ledFillFilterSelects();
+renderLedList();
+}
+/* ================= 明细筛选（纯前端） ================= */
+function ledEl(id){ return document.getElementById(id); }
+/* 英文缩写：给日期分组头用，手工解析避免 new Date('YYYY-MM-DD') 按 UTC 算错一天 */
+function ledWeekday(iso){
+var p = String(iso || '').split('-');
+var d = new Date(+p[0], +p[1] - 1, +p[2]);
+return isNaN(d.getTime()) ? '' : '周' + '日一二三四五六'.charAt(d.getDay());
+}
+/* 类别下拉：支出 + 收入分类去重，末尾追加「转账」（转账没有分类） */
+function ledFillFilterSelects(){
+var cat = ledEl('led-cat'), acct = ledEl('led-acct');
+if (cat){
+var keep = cat.value;
+var cats = [];
+EX_CATS.concat(IN_CATS).forEach(function(c){ if (cats.indexOf(c) < 0) cats.push(c); });
+cat.innerHTML = '<option value="">全部类别</option>' +
+cats.map(function(c){ return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('') +
+'<option value="__transfer">转账</option>';
+cat.value = keep;
+if (!cat.value) cat.value = '';
+}
+if (acct){
+var keepA = acct.value;
+acct.innerHTML = '<option value="">全部账户</option>' +
+db.accounts.map(function(a){
+return '<option value="' + esc(a.id) + '">' + esc(a.name) + '</option>';
+}).join('');
+acct.value = keepA;
+if (!acct.value) acct.value = '';
+}
+}
+function ledReadFilters(){
+function num(id){
+var el = ledEl(id);
+if (!el) return null;
+var raw = String(el.value == null ? '' : el.value).trim();
+if (raw === '') return null;
+var v = +raw;
+return isNaN(v) ? null : v;
+}
+var q = ledEl('led-q'), cat = ledEl('led-cat'), acct = ledEl('led-acct'), scope = ledEl('led-scope');
+return {
+q: q ? String(q.value || '').trim().toLowerCase() : '',
+cat: cat ? cat.value : '',
+acct: acct ? acct.value : '',
+min: num('led-min'), max: num('led-max'),
+scope: scope ? (scope.value || 'month') : 'month'
+};
+}
+function ledHasFilter(f){
+return !!(f.q || f.cat || f.acct || f.min != null || f.max != null || f.scope === 'all');
+}
+function ledMatch(t, f, month){
+if (f.scope !== 'all' && monthKey(t.date) !== month) return false;
+if (f.cat === '__transfer'){
+if (t.type !== 'transfer') return false;
+} else if (f.cat && (t.type === 'transfer' || t.category !== f.cat)){
+return false;
+}
+if (f.acct && t.accountId !== f.acct && t.toAccountId !== f.acct) return false;
+if (f.min != null && t.amount < f.min) return false;
+if (f.max != null && t.amount > f.max) return false;
+if (f.q){
 var from = accountById(t.accountId), to = accountById(t.toAccountId);
-catLabel = '转账 ' + (from ? from.name : '?') + ' → ' + (to ? to.name : '?');
+var hay = [t.note, t.category, from ? from.name : '', to ? to.name : '',
+t.type === 'transfer' ? '转账' : '',
+t.autoKind === AUTO_KIND.DCA ? '定投' : '', t.auto ? '自动' : '',
+String(t.amount)].join(' ').toLowerCase();
+if (hay.indexOf(f.q) < 0) return false;
+}
+return true;
+}
+/* 单行 HTML。日期已由分组头给，行里不再重复一列日期，正文能多显示几个字 */
+function ledRowHtml(t){
+var sign, catLabel;
+if (t.type === 'expense'){ sign = '−'; catLabel = t.category; }
+else if (t.type === 'income'){ sign = '+'; catLabel = t.category; }
+else if (t.type === 'transfer'){
+sign = '';
+var from = accountById(t.accountId), to = accountById(t.toAccountId);
+/* 自动定投标「定投」，手动转账标「转账」，一眼能分开 */
+catLabel = (t.autoKind === AUTO_KIND.DCA ? '定投 ' : '转账 ') +
+(from ? from.name : '?') + ' → ' + (to ? to.name : '?');
 } else {
-sign = ''; cls = 'muted';
-catLabel = '余额调整';
+sign = ''; catLabel = '余额调整';
 }
 var acc = accountById(t.accountId);
+/* 定投的备注固定是「每日定投」，标签已经写了，避免一行里重复两遍 */
+var showNote = t.note && !(t.autoKind === AUTO_KIND.DCA && t.note === '每日定投');
 var plain = catLabel + (acc && t.type !== 'transfer' ? ' · ' + acc.name : '') +
-(t.note ? ' · ' + t.note : '');
-var sub = esc(plain);
+(showNote ? ' · ' + t.note : '');
 return '<div class="list-item' + (t.auto ? '' : ' is-editable') + '"' +
 (t.auto ? '' : ' role="button" tabindex="0" data-act="tx-edit" data-id="' + esc(t.id) + '"') + '>' +
-'<span class="muted" style="width:46px;flex:none">' + t.date.slice(5) + '</span>' +
-'<span class="grow"><span title="' + esc(plain) + '">' + sub + '</span></span>' +
+'<span class="grow"><span title="' + esc(plain) + '">' + esc(plain) + '</span></span>' +
 '<span class="amt ' + (t.type === 'expense' ? 'neg' : (t.type === 'income' ? 'pos' : 'muted')) + '">' +
 (t.type === 'transfer' ? money(t.amount) : sign + num(t.amount)) + '</span>' +
 (t.auto
@@ -1215,11 +1287,86 @@ return '<div class="list-item' + (t.auto ? '' : ' is-editable') + '"' +
 '" data-date="' + esc(t.date) + '">删</button>'
 : '<button class="btn btn-sm" data-act="tx-delete" data-id="' + esc(t.id) + '">删</button>') +
 '</div>';
-}).join('') : '<div class="empty">这个月还没有记录</div>') +
-(list.length > ledShown
+}
+/* 列表独立渲染：改筛选条件时只重画列表，不重建指标卡和两张图表 */
+function renderLedList(){
+var monthEl = ledEl('led-month');
+var month = (monthEl && monthEl.value) || thisMonth();
+var f = ledReadFilters();
+var rows = db.transactions.concat(db.autoTx)
+.filter(function(t){ return ledMatch(t, f, month); })
+.sort(function(x, y){ return x.date < y.date ? 1 : (x.date > y.date ? -1 : 0); });
+/* 当天合计：只算收入/支出；转账是账户间挪钱，不进合计 */
+var daySum = {};
+rows.forEach(function(t){
+var d = daySum[t.date] || (daySum[t.date] = {expense: 0, income: 0});
+if (t.type === 'expense') d.expense += t.amount;
+else if (t.type === 'income') d.income += t.amount;
+});
+var shown = rows.slice(0, ledShown);
+var html = '', lastDate = '';
+shown.forEach(function(t){
+if (t.date !== lastDate){
+lastDate = t.date;
+var s = daySum[t.date] || {expense: 0, income: 0};
+var parts = [];
+if (s.expense) parts.push('支出 −' + money(s.expense));
+if (s.income) parts.push('收入 +' + money(s.income));
+html += '<div class="led-day"><span>' + esc(String(t.date).slice(5)) + ' ' +
+ledWeekday(t.date) + '</span><span>' + parts.join(' · ') + '</span></div>';
+}
+html += ledRowHtml(t);
+});
+var box = ledEl('led-list');
+if (box){
+box.innerHTML = (shown.length ? html
+: '<div class="empty">' + (ledHasFilter(f)
+? '没有符合条件的记录，放宽条件或点「清空筛选」试试。'
+: '这个月还没有记录') + '</div>') +
+(rows.length > ledShown
 ? '<div class="led-more"><button class="btn" data-act="led-more">显示更多（还有 ' +
-(list.length - ledShown) + ' 条）</button></div>'
+(rows.length - ledShown) + ' 条）</button></div>'
 : '');
+}
+/* 命中摘要：让人明确知道现在看到的是筛选后的结果、还是全部 */
+var hit = ledEl('led-hit');
+if (hit){
+var exp = 0, inc = 0, tr = 0;
+rows.forEach(function(t){
+if (t.type === 'expense') exp += t.amount;
+else if (t.type === 'income') inc += t.amount;
+else if (t.type === 'transfer') tr++;
+});
+var scopeTxt = f.scope === 'all' ? '全部时间' : month;
+var line = scopeTxt + ' · ' + (ledHasFilter(f) ? '命中 ' : '共 ') + rows.length + ' 笔';
+if (exp) line += ' · 支出 ' + money(exp);
+if (inc) line += ' · 收入 ' + money(inc);
+if (tr) line += ' · 转账 ' + tr + ' 笔';
+hit.textContent = line;
+}
+var lab = ledEl('led-month-label');
+if (lab) lab.textContent = f.scope === 'all' ? '全部时间' : month;
+}
+/* 筛选条件变化：重置到第一批并重画列表。
+关键词一旦有值就自动切「全部时间」——不然「我记得是夏天那会儿」根本搜不到。 */
+function ledOnFilter(ev){
+var scope = ledEl('led-scope'), q = ledEl('led-q');
+if (ev && ev.target && ev.target.id === 'led-q' && scope && q &&
+String(q.value || '').trim() && scope.value !== 'all'){
+scope.value = 'all';
+}
+ledShown = LED_PAGE;
+renderLedList();
+}
+function ledClearFilters(){
+['led-q', 'led-min', 'led-max', 'led-cat', 'led-acct'].forEach(function(id){
+var el = ledEl(id);
+if (el) el.value = '';
+});
+var scope = ledEl('led-scope');
+if (scope) scope.value = 'month';
+ledShown = LED_PAGE;
+renderLedList();
 }
 ;
 /* ============ 自定义周期花销：发薪日不固定，按任意起止区间统计 ============ */
@@ -1529,7 +1676,7 @@ document.getElementById('data-stats').textContent =
 '账户 ' + db.accounts.length + ' 个 · 流水 ' + db.transactions.length + ' 条 · 自动 ' +
 db.autoTx.length + ' 笔 · 约 ' + (bytes/1024).toFixed(1) + ' KB';
 document.getElementById('data-desc').textContent =
-'数据保存在本机 SQLite 文件里（data/finance.db），不上传任何服务器。余额由「建账余额 + 累计流水 + 每日定投 + 固定支出规则」自动推导；定投与固定支出按日历派生、不写入流水表，支持每天、仅工作日与每月固定日（如房租）。活期、银行卡、银行理财分别独立核算。删改任何一笔真实流水后余额和曲线都会立即重算。';
+'数据保存在本机 SQLite 文件里（data/finance.db），不上传任何服务器。余额由「建账余额 + 累计流水 + 每日定投 + 固定支出规则」自动推导；定投与固定支出按日历派生、不写入流水表，但都会显示在明细里——定投是账户间转账，只在两个账户间挪钱、不计入收支；固定支出是真实花销，计入支出统计。固定支出支持每天、仅工作日与每月固定日（如房租）。活期、银行卡、银行理财分别独立核算。删改任何一笔真实流水后余额和曲线都会立即重算。';
 }
 /* ================= 总渲染 ================= */
 function renderAll(){
@@ -1868,14 +2015,22 @@ await reload();
 派生时跳过它，于是余额、明细、统计、导出会同时少掉这一笔。 */
 async function delAutoTx(ruleId, date){
 if (!ruleId || !date) return;
-var t = autoTxOf(AUTO_KIND.FIXED).filter(function(x){
+var t = db.autoTx.filter(function(x){
 return x.ruleId === ruleId && x.date === date;
 })[0];
+var isTransfer = !!t && t.type === 'transfer';
+if (isTransfer){
+/* 定投删一笔会同时改动两个账户余额，和固定支出不同，先确认一次 */
+var from = accountById(t.accountId), to = accountById(t.toAccountId);
+if (!confirm('删除 ' + date.slice(5) + ' 的这笔定投（' + money(t.amount) + '）？\n' +
+(from ? from.name : '转出账户') + ' 与 ' + (to ? to.name : '转入账户') +
+' 的余额会同时还原，定投规则本身不受影响。')) return;
+}
 try {
 await api('/api/skips', {method:'POST', body:{ruleId: ruleId, date: date}});
 await reload();
-alert.success('已删除 ' + (t ? txLabel(t) : '这笔自动支出') +
-'（' + date.slice(5) + '），规则本身不受影响。');
+alert.success('已删除 ' + date.slice(5) + ' 的' +
+(isTransfer ? '这笔定投' : '这笔自动支出') + '，规则本身不受影响。');
 } catch(e){ alert.error(e.message); }
 }
 /* ================= 交互：编辑流水 ================= */
@@ -2597,8 +2752,8 @@ function exportCSV(kind){
 var rows = [];
 if (kind === 'transactions'){
 rows.push(['日期','类型','账户','转入账户','分类','金额','备注']);
-/* 自动固定支出是真实支出，必须导出才能与余额对账；定投是账户间转账，仍不导出 */
-db.transactions.concat(autoTxOf(AUTO_KIND.FIXED)).forEach(function(t){
+/* 明细里显示什么就导出什么（定投转账 + 固定支出），否则导出与界面对不上 */
+db.transactions.concat(db.autoTx).forEach(function(t){
 var a = accountById(t.accountId), b = accountById(t.toAccountId);
 rows.push([t.date,
 {expense:'支出', income:'收入', transfer:'转账', adjust:'余额调整'}[t.type] || t.type,
@@ -2713,7 +2868,8 @@ var ACTIONS = {
 'auto-delete': function(id, el){
 return delAutoTx(id, el ? el.getAttribute('data-date') : '');
 },
-'led-more': ledMore
+'led-more': ledMore,
+'led-clear': ledClearFilters
 };
 function runAction(el){
 var fn = ACTIONS[el.getAttribute('data-act')];
@@ -2760,6 +2916,13 @@ document.getElementById('tx-amount').addEventListener('input', updateTxHint);
 document.getElementById('tx-acct').addEventListener('change', updateTxHint);
 document.getElementById('tx-to').addEventListener('change', updateTxHint);
 document.getElementById('led-month').addEventListener('change', renderLedger);
+['input', 'change'].forEach(function(type){
+document.addEventListener(type, function(e){
+var t = e.target;
+if (!t || !t.closest || !t.closest('#led-filter')) return;
+ledOnFilter(e);
+});
+});
 document.getElementById('ana-period').addEventListener('change', renderAnalysis);
 cpInit();
 (async function boot(){

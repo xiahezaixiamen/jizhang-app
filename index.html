@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <title>本地个人财务管理</title>
-<link rel="stylesheet" href="app.3a879fccc1.css">
+<link rel="stylesheet" href="app.e8c64fc146.css">
 </head>
 <body>
 <header>
@@ -137,6 +137,38 @@
       <span style="flex:1"></span>
       <span class="muted" id="led-month-label"></span>
     </div>
+    <div class="led-filter" id="led-filter">
+      <div class="field">
+        <label>关键词</label>
+        <input type="text" id="led-q" maxlength="40" placeholder="备注 / 分类 / 账户">
+      </div>
+      <div class="field">
+        <label>类别</label><select id="led-cat"></select>
+      </div>
+      <div class="field">
+        <label>账户</label><select id="led-acct"></select>
+      </div>
+      <div class="field">
+        <label>金额区间</label>
+        <div class="range">
+          <input type="number" id="led-min" step="0.01" min="0" placeholder="最低">
+          <span>–</span>
+          <input type="number" id="led-max" step="0.01" min="0" placeholder="最高">
+        </div>
+      </div>
+      <div class="field">
+        <label>范围</label>
+        <select id="led-scope">
+          <option value="month">本月</option>
+          <option value="all">全部时间</option>
+        </select>
+      </div>
+      <div class="field led-filter-act">
+        <label>&nbsp;</label>
+        <button class="btn btn-sm" type="button" data-act="led-clear">清空筛选</button>
+      </div>
+    </div>
+    <div class="led-hit" id="led-hit"></div>
     <div id="led-list"></div>
   </div>
 </section>
@@ -308,14 +340,14 @@
   </div>
 </div>
 
-<script src="localdb.js?v=32"></script>
+<script src="localdb.js?v=33"></script>
 <script src="lib/chart.umd.min.js"></script>
 <script>
 if (typeof Chart === 'undefined') {
   document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"><\/script>');
 }
 </script>
-<script src="app.d7e835fe06.js"></script><script>
+<script src="app.c952294355.js"></script><script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('sw.js').catch(function () {});

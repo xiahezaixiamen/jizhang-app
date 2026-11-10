@@ -204,7 +204,8 @@
       if (!valid[cur.fromId] || !valid[cur.toId] || cur.fromId === cur.toId) return null;
       return {
         date: iso, type: 'transfer', accountId: cur.fromId, toAccountId: cur.toId,
-        category: '', amount: cur.amount, note: '每日定投', auto: true, autoKind: 'dca'
+        category: '', amount: cur.amount, note: '每日定投', auto: true, autoKind: 'dca',
+        ruleId: 'dca'   /* 定投只有一条版本链，固定 ruleId 用于按天排除单笔 */
       };
     });
 
@@ -231,12 +232,13 @@
       }));
     });
 
-    /* 手动删掉的单笔：按 (ruleId, date) 排除，与 app.py 的 auto_virtual 同口径 */
+    /* 手动删掉的单笔自动流水：按 (ruleId, date) 排除，定投与固定支出同口径；
+       与 jz/derive.py 的 auto_virtual 对齐 */
     if (skips && skips.length) {
       var skip = {};
       skips.forEach(function (s) { skip[(s.ruleId || 'default') + '|' + s.date] = 1; });
       txs = txs.filter(function (t) {
-        return !(t.autoKind === 'fixed' && skip[(t.ruleId || 'default') + '|' + t.date]);
+        return !skip[(t.ruleId || 'default') + '|' + t.date];
       });
     }
     txs.sort(function (a, b) {
@@ -646,14 +648,18 @@
     });
   }
 
-  /* 删掉某一天的某笔自动支出（等同 app.py 的 add_skip / delete_skip） */
+  /* 删掉某一天的某笔自动流水（定投或固定支出，等同 jz 的 add_skip / delete_skip） */
   function addSkip(d) {
     d = d || {};
     var rid = clip(d.ruleId || d.rule_id, 40) || 'default';
     var ds = checkDate(d.date);
-    return readAll('fixed').then(function (rows) {
+    /* 定投只有一条版本链（ruleId 固定为 dca），配置还在就允许排除 */
+    var store = rid === 'dca' ? 'dca' : 'fixed';
+    return readAll(store).then(function (rows) {
       var has = false;
-      rows.forEach(function (v) { if ((v.ruleId || 'default') === rid) has = true; });
+      rows.forEach(function (v) {
+        if (rid === 'dca' || (v.ruleId || 'default') === rid) has = true;
+      });
       if (!has) throw new Error('规则不存在或已被删除');
       return write([{
         op: 'put', store: 'skips',
@@ -831,7 +837,14 @@
       return removeSkip(decodeURIComponent(parts[2]), parts[3]);
     }
     if (method === 'DELETE' && parts.length === 2 && parts[1] === 'dca') {
-      return write([{ op: 'clear', store: 'dca' }]).then(function () { return { ok: true }; });
+      /* 配置清空时，针对定投的排除记录也一并清掉，避免留下孤儿 */
+      return readAll('skips').then(function (rows) {
+        var ops = [{ op: 'clear', store: 'dca' }];
+        rows.forEach(function (s) {
+          if ((s.ruleId || 'default') === 'dca') ops.push({ op: 'del', store: 'skips', key: s.k });
+        });
+        return write(ops).then(function () { return { ok: true }; });
+      });
     }
     if (method === 'DELETE' && parts.length === 3 && parts[1] === 'fixed') {
       return deleteFixedRule(parts[2]);
