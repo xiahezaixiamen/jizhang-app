@@ -353,6 +353,9 @@ var wasHidden = privacyOn;
 privacyOn = !privacyOn;
 updatePrivacyBtn();
 renderAll();
+/* 洞察区只在资产页渲染。人在别的页签切换隐私时，隐藏 section 里会留着上一次的
+金额文本；同步刷一次，避免真实金额残留在 DOM 里（切回资产页时也会重绘）。 */
+if (activeTab !== 'overview' && typeof renderInsights === 'function') renderInsights();
 if (wasHidden && !privacyOn) rollMetrics();
 }
 document.getElementById('privacy-btn').addEventListener('click', togglePrivacy);
@@ -973,6 +976,7 @@ openModal(it.lab, it.body, function(){ return true; }, '关闭', true);
 }
 function renderOverview(){
 ROLL_SLOTS.length = 0;
+renderInsights(); /* 洞察区属于资产页：只在看这一页时算 */
 renderDca();
 renderBackupBar();
 var bal = currentBalances();
@@ -1124,9 +1128,11 @@ var toEl = document.getElementById('tx-to');
 var isTransfer = (txType === 'transfer');
 /* 支出/收入排除 inLedger:false 的角色；转账全部角色可用 */
 var allow = isTransfer ? ROLE_ORDER : NON_TRANSFER_ROLES;
-var prev = acctEl.value;
+var prev = acctEl.value, prevTo = toEl.value;
 acctEl.innerHTML = acctOptionsHtml(allow) || '<option value="">（先添加账户）</option>';
 toEl.innerHTML = acctOptionsHtml(ROLE_ORDER) || '<option value="">（先添加账户）</option>';
+/* 转入账户也要留住：下拉重建后不还原，转账时选好的目标会被悄悄打回第一个 */
+if (prevTo) toEl.value = prevTo;
 /* 默认账户：优先保留当前选择，其次沿用上次用的，最后取第一个「日常可用」账户 */
 var keep = '';
 if (prev && accountById(prev) && allow.indexOf(roleOf(accountById(prev))) >= 0) keep = prev;
@@ -1190,6 +1196,8 @@ var LED_PAGE = 50, ledShown = LED_PAGE, ledMonth = '';
 点格子改为弹窗展示当天全部明细，不再把明细内联铺到日历下方；
 ledViewAll 为 true 时下方列表才平铺全月（筛选命中）记录。 */
 var ledCalMonth = '', ledSelDate = '', ledCalInit = false, ledViewAll = false;
+/* 日历是否需要重画：只有数据、月份、选中日期变了才需要 */
+var ledCalDirty = true;
 function ledPad2(n){ return n < 10 ? '0' + n : String(n); }
 function ledEnsureSel(month){
 if (ledSelDate && monthKey(ledSelDate) !== month)
@@ -1200,6 +1208,8 @@ ledShown += LED_PAGE;
 renderLedList();
 }
 function renderLedger(){
+/* 数据或月份变了，日历的净额与高亮都要重算一次 */
+ledCalDirty = true;
 ROLL_SLOTS.length = 0;
 renderFixed();
 var month = document.getElementById('led-month').value || thisMonth();
@@ -1443,6 +1453,14 @@ html += '<button type="button" class="' + cls + '" data-act="led-day" data-date=
 }
 grid.innerHTML = html;
 }
+/* 日历只在「数据 / 月份 / 选中日期」变化时才重画。
+筛选、翻页、改条件都不改变日历内容（配色取当天全部记录，不看筛选），
+逐字输入时反复全量汇总 + 重建整个日历 DOM 是纯浪费，还会让输入发涩。 */
+function ledDrawCalendar(month){
+if (!ledCalDirty) return;
+renderLedCalendar(month, ledDaySumAll());
+ledCalDirty = false;
+}
 /* 单日弹窗内容：该日全部记录 + 支出/收入/合计。抽成纯函数，
 编辑/删除后可以不重开弹窗、就地换掉内容（保留撤销提示）。 */
 function ledDayBody(iso){
@@ -1517,8 +1535,9 @@ var d = daySum[t.date] || (daySum[t.date] = {expense: 0, income: 0});
 if (t.type === 'expense') d.expense += t.amount;
 else if (t.type === 'income') d.income += t.amount;
 });
-/* 日历配色与单日弹窗都不看筛选；分组头的当日收支仍按筛选命中显示，保持台账口径 */
-renderLedCalendar(ledCalMonth || month, ledDaySumAll());
+/* 日历配色与单日弹窗都不看筛选；分组头的当日收支仍按筛选命中显示，保持台账口径。
+只画必须的那些次：筛选命中变化时日历内容一个字都不会变。 */
+ledDrawCalendar(ledCalMonth || month);
 /* 点日期只弹窗，不再把当天明细内联铺到日历下方。
 只有「查看全月」才在下方平铺命中记录（分页 + 按日分组）。 */
 var viewRows = ledViewAll ? rows : [];
@@ -1598,7 +1617,24 @@ ledViewAll = true;
 ledShown = LED_PAGE;
 renderLedList();
 }
+/* 筛选调度：文本框逐字输入加 160ms 防抖（每敲一个键都全量过滤 + 重排列表会发涩），
+下拉等离散选择仍即点即生效。清空筛选要取消待执行的回调，
+否则它会在清空之后又把「按日查看」切成全月。 */
+var ledFilterTimer = 0;
+function ledCancelFilter(){
+if (ledFilterTimer){ clearTimeout(ledFilterTimer); ledFilterTimer = 0; }
+}
+function ledScheduleFilter(ev, debounce){
+ledCancelFilter();
+if (!debounce){ ledOnFilter(ev); return; }
+ledFilterTimer = setTimeout(function(){
+ledFilterTimer = 0;
+ledOnFilter(ev);
+}, 160);
+}
 function ledClearFilters(){
+ledCancelFilter();
+ledCalDirty = true; /* 选中日期要回到今天，日历高亮得跟着变 */
 ['led-q', 'led-min', 'led-max', 'led-cat', 'led-acct'].forEach(function(id){
 var el = ledEl(id);
 if (el) el.value = '';
@@ -1617,11 +1653,13 @@ function ledSelectDate(iso){
 if (!iso) return;
 ledSelDate = iso;
 /* 只重画日历高亮，下方列表一概不动：弹窗关闭后页面自然就是原样 */
-renderLedCalendar(ledCalMonth || thisMonth(), ledDaySumAll());
+ledCalDirty = true;
+ledDrawCalendar(ledCalMonth || thisMonth());
 ledOpenDay(iso);
 }
 function ledShowAll(){
 ledSelDate = '';
+ledCalDirty = true; /* 取消日期选中态，日历要跟着去掉 is-sel */
 ledViewAll = true;
 ledShown = LED_PAGE;
 renderLedList();
@@ -1937,11 +1975,18 @@ labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:'rgba(60,60,67,.7)'}}}})
 cpRender();
 }
 /* ================= 渲染：数据 ================= */
-/* 数据规模：stringify 整个 db（含逐日派生的虚拟流水）不便宜，按 db 引用缓存一次 */
+/* 数据规模：只算会落到 SQLite 里的部分。逐日派生的 autoTx 不入库，
+把它算进来既不符合「本机数据库大小」这行文案，又会随使用年限线性变大。
+按 db 引用缓存一次，而且只有切到「数据」页时才会用到。 */
 function dataSize(){
 var c = cache();
 if (c.size == null){
-try { c.size = JSON.stringify(db).length; } catch(e){ c.size = 0; }
+try {
+c.size = JSON.stringify({
+accounts: db.accounts, transactions: db.transactions,
+dca: db.dca, fixed: db.fixed, skips: db.skips
+}).length;
+} catch(e){ c.size = 0; }
 }
 return c.size;
 }
@@ -1953,15 +1998,48 @@ db.autoTx.length + ' 笔 · 约 ' + (bytes/1024).toFixed(1) + ' KB';
 document.getElementById('data-desc').textContent =
 '数据保存在本机 SQLite 文件里（data/finance.db），不上传任何服务器。余额由「建账余额 + 累计流水 + 每日定投 + 固定支出规则」自动推导；定投与固定支出按日历派生、不写入流水表，但都会显示在明细里——定投是账户间转账，只在两个账户间挪钱、不计入收支；固定支出是真实花销，计入支出统计。固定支出支持每天、仅工作日与每月固定日（如房租）。标为「公司报销」的流水照常扣余额、照常显示在明细里，只有打开顶部总开关后才从统计分析中剔除，关掉即全部恢复。活期、银行卡、银行理财分别独立核算。删改任何一笔真实流水后余额和曲线都会立即重算。';
 }
-/* ================= 总渲染 ================= */
+/* ================= 重绘状态保留 =================
+renderAll 会重建当前页的大块 innerHTML。不把「刚滚到哪 / 展开了什么」还回去，
+每记一笔都会被弹回顶部、展开的面板又合上，感觉很跳。
+只抓几个固定容器，不为保存状态反过来遍历整棵 DOM 树。 */
+var VIEW_STATE_SEL = '#insight-hero, #led-list, #fixed-scroll';
+function captureViewState(){
+var st = {y:0, scroll:[], open:[]};
+try {
+st.y = window.pageYOffset || document.documentElement.scrollTop || 0;
+/* #insight-hero 会被 innerHTML 替换掉，所以只记序号，恢复时按选择器重新取 */
+Array.prototype.forEach.call(document.querySelectorAll(VIEW_STATE_SEL), function(el, i){
+st.scroll.push([i, el.scrollTop || 0, el.scrollLeft || 0]);
+});
+var ds = document.querySelectorAll('details');
+Array.prototype.forEach.call(ds, function(d, i){ if (d.open) st.open.push(i); });
+} catch(e){}
+return st;
+}
+function restoreViewState(st){
+if (!st) return;
+try {
+var els = document.querySelectorAll(VIEW_STATE_SEL);
+st.scroll.forEach(function(x){
+if (els[x[0]]){ els[x[0]].scrollTop = x[1]; els[x[0]].scrollLeft = x[2]; }
+});
+var ds = document.querySelectorAll('details');
+st.open.forEach(function(i){ if (ds[i]) ds[i].open = true; });
+if (typeof window.scrollTo === 'function') window.scrollTo(0, st.y);
+} catch(e){}
+}
+/* ================= 总渲染 =================
+只渲染「当前看得见的那一页」+ 常驻的顶部开关条：
+洞察区、数据页规模统计各自在所属页签的 render() 里算，
+在记账页记一笔时不必再把两个没看的页面也全量跑一遍。 */
 function renderAll(){
+var viewState = captureViewState();
 stopRoll();
 ROLL_SLOTS.length = 0;
 updateReimbBar();
 fillAccountSelects();
-renderInsights();
 tabById(activeTab).render();
-renderData();
+restoreViewState(viewState);
 }
 function renderCurrent(){
 stopRoll();
@@ -3228,7 +3306,7 @@ document.getElementById('led-month').addEventListener('change', renderLedger);
 document.addEventListener(type, function(e){
 var t = e.target;
 if (!t || !t.closest || !t.closest('#led-filter')) return;
-ledOnFilter(e);
+ledScheduleFilter(e, type === 'input' && t.tagName === 'INPUT');
 });
 });
 document.getElementById('ana-period').addEventListener('change', renderAnalysis);
