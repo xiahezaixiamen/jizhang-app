@@ -1171,9 +1171,10 @@ fillAccountSelects();
 筛选是纯前端过滤（数据本来就在内存里），不改后端接口。
 切页签、记一笔不会把已展开的页数收回去；只有改筛选条件才回到第一批。 */
 var LED_PAGE = 50, ledShown = LED_PAGE, ledMonth = '';
-/* 日历视图：ledCalMonth 跟随顶部月份选择器；ledSelDate 为空表示「查看全月」。
-默认选中今天——清空筛选后只列出当天明细，不再把每天的记录平铺重复展示。 */
-var ledCalMonth = '', ledSelDate = '', ledCalInit = false;
+/* 日历视图：ledCalMonth 跟随顶部月份选择器；ledSelDate 只表示日历高亮的那天。
+点格子改为弹窗展示当天全部明细，不再把明细内联铺到日历下方；
+ledViewAll 为 true 时下方列表才平铺全月（筛选命中）记录。 */
+var ledCalMonth = '', ledSelDate = '', ledCalInit = false, ledViewAll = false;
 function ledPad2(n){ return n < 10 ? '0' + n : String(n); }
 function ledEnsureSel(month){
 if (ledSelDate && monthKey(ledSelDate) !== month)
@@ -1324,8 +1325,9 @@ if (hay.indexOf(f.q) < 0) return false;
 }
 return true;
 }
-/* 单行 HTML。日期已由分组头给，行里不再重复一列日期，正文能多显示几个字 */
-function ledRowHtml(t){
+/* 单行 HTML。日期已由分组头给，行里不再重复一列日期，正文能多显示几个字。
+readOnly=true 用于单日弹窗：只展示，去掉编辑/删除入口，避免弹窗里再套弹窗。 */
+function ledRowHtml(t, readOnly){
 var sign, catLabel;
 if (t.type === 'expense'){ sign = '−'; catLabel = t.category; }
 else if (t.type === 'income'){ sign = '+'; catLabel = t.category; }
@@ -1343,23 +1345,25 @@ var acc = accountById(t.accountId);
 var showNote = t.note && !(t.autoKind === AUTO_KIND.DCA && t.note === '每日定投');
 var plain = catLabel + (acc && t.type !== 'transfer' ? ' · ' + acc.name : '') +
 (showNote ? ' · ' + t.note : '');
-return '<div class="list-item' + (t.auto ? '' : ' is-editable') + '"' +
-(t.auto ? '' : ' role="button" tabindex="0" data-act="tx-edit" data-id="' + esc(t.id) + '"') + '>' +
+var editable = !readOnly && !t.auto;
+return '<div class="list-item' + (editable ? ' is-editable' : '') + '"' +
+(editable ? ' role="button" tabindex="0" data-act="tx-edit" data-id="' + esc(t.id) + '"' : '') + '>' +
 '<span class="grow"><span title="' + esc(plain) + '">' + esc(plain) + '</span>' +
 (t.reimbursable
 ? '<span class="tag" style="margin-left:6px;background:var(--primary-weak);color:var(--primary)">报销</span>'
 : '') + '</span>' +
 '<span class="amt ' + (t.type === 'expense' ? 'neg' : (t.type === 'income' ? 'pos' : 'muted')) + '">' +
 (t.type === 'transfer' ? money(t.amount) : sign + num(t.amount)) + '</span>' +
-(t.auto
+(readOnly ? '' : (t.auto
 ? '<button class="btn btn-sm" data-act="auto-delete" data-id="' + esc(t.ruleId || '') +
 '" data-date="' + esc(t.date) + '">删</button>'
-: '<button class="btn btn-sm" data-act="tx-delete" data-id="' + esc(t.id) + '">删</button>') +
+: '<button class="btn btn-sm" data-act="tx-delete" data-id="' + esc(t.id) + '">删</button>')) +
 '</div>';
 }
 /* ================= 明细日历 ================= */
-/* 日历只是视图层：金额来自当前筛选命中的记录，按日期聚合「收入 − 支出」，
-转账不进合计；点格子把下方列表切到当天，「查看全月」恢复平铺。 */
+/* 日历只是视图层：点格子弹出当天全部明细，不在日历下方内联展开。
+配色与格内净额都取自「当天全部记录」的汇总（不受筛选影响），
+且只按汇总净额判定，绝不按单条记录的正负号上色。 */
 function ledCalAmt(v){
 if (privacyOn) return PRIVACY_MASK;
 return (v >= 0 ? '+' : '-') + Math.abs(v).toFixed(2);
@@ -1367,7 +1371,29 @@ return (v >= 0 ? '+' : '-') + Math.abs(v).toFixed(2);
 function ledDateCn(iso){
 return (+String(iso).slice(5, 7)) + '月' + (+String(iso).slice(8, 10)) + '日';
 }
-function renderLedCalendar(rows, month, daySum){
+/* 浮点累加会有 1e-15 级尾巴，用半分钱做阈值，避免 0 被判成红/绿 */
+var LED_EPS = 0.005;
+function ledNetOf(s){ return (s.income || 0) - (s.expense || 0); }
+/* out=支出>收入（净额负，绿）；in=收入>支出（净额正，红）；flat=相抵，沿用原样式 */
+function ledNetTone(net){
+return net < -LED_EPS ? 'out' : (net > LED_EPS ? 'in' : 'flat');
+}
+/* 当天全部记录汇总：真实流水 + 自动派生，不看筛选条件。
+转账是账户间挪钱、不改变净资产，只记笔数，不进收支净额。 */
+function ledDaySumAll(){
+var sum = {};
+allTx().forEach(function(t){
+var d = sum[t.date] || (sum[t.date] = {expense: 0, income: 0, transfer: 0});
+if (t.type === 'expense') d.expense += t.amount;
+else if (t.type === 'income') d.income += t.amount;
+else d.transfer++;
+});
+return sum;
+}
+function ledDayRows(iso){
+return allTx().filter(function(t){ return t.date === iso; });
+}
+function renderLedCalendar(month, dayAll){
 var title = ledEl('led-cal-title'), grid = ledEl('led-cal-grid');
 if (!title || !grid) return;
 var y = +month.slice(0, 4), m = +month.slice(5, 7);
@@ -1379,16 +1405,19 @@ var t0 = today(), html = '', i;
 for (i = 0; i < first; i++) html += '<span class="led-cal-cell blank"></span>';
 for (var d = 1; d <= days; d++){
 var iso = month + '-' + ledPad2(d);
-var s = daySum[iso] || {expense: 0, income: 0};
-var net = s.income - s.expense;
-var has = !!daySum[iso], future = iso > t0;
+var s = dayAll[iso];
+var has = !!s;
+var net = has ? ledNetOf(s) : 0;
+/* 只看汇总净额：同日 -20 与 +15 合计 -5 → 绿；-20 与 +100 合计 +80 → 红 */
+var tone = has ? ledNetTone(net) : 'flat';
+var future = iso > t0;
 var cls = 'led-cal-cell';
-if (net < -0.005) cls += ' has-out';
-else if (net > 0.005) cls += ' has-in';
+if (tone === 'out') cls += ' has-out';
+else if (tone === 'in') cls += ' has-in';
 if (iso === t0) cls += ' is-today';
 if (future) cls += ' is-future';
 if (iso === ledSelDate) cls += ' is-sel';
-var vCls = net > 0.005 ? ' pos' : (net < -0.005 ? ' neg' : '');
+var vCls = tone === 'in' ? ' pos' : (tone === 'out' ? ' neg' : '');
 var v = (has && !future) ? ledCalAmt(net) : '';
 html += '<button type="button" class="' + cls + '" data-act="led-day" data-date="' + iso +
 '" aria-label="' + iso + (iso === t0 ? ' 今天' : '') + ' 净额 ' + (v || '0.00') + '">' +
@@ -1397,6 +1426,26 @@ html += '<button type="button" class="' + cls + '" data-act="led-day" data-date=
 (iso === t0 ? '<span class="today-dot"></span>' : '') + '</button>';
 }
 grid.innerHTML = html;
+}
+/* 单日明细弹窗：展示该日全部记录 + 支出/收入/合计；关闭后页面原样不动 */
+function ledOpenDay(iso){
+var list = ledDayRows(iso);
+var s = ledDaySumAll()[iso] || {expense: 0, income: 0, transfer: 0};
+var net = ledNetOf(s), tone = ledNetTone(net);
+var body = list.length
+? '<div class="day-lines">' + list.map(function(t){ return ledRowHtml(t, true); }).join('') + '</div>'
+: '<div class="day-empty">这一天还没有记录。</div>';
+var netTxt = privacyOn ? PRIVACY_MASK : ((net >= 0 ? '+' : '−') + num(Math.abs(net)));
+body += '<div class="day-sum">' +
+'<span><span class="lbl">支出</span> −' + money(s.expense) + '</span>' +
+'<span><span class="lbl">收入</span> +' + money(s.income) + '</span>' +
+'<span><span class="lbl">合计</span> <b class="net ' +
+(tone === 'in' ? 'pos' : (tone === 'out' ? 'neg' : '')) + '">' + netTxt + '</b></span>' +
+(s.transfer ? '<span class="lbl">另有转账 ' + s.transfer + ' 笔，不计入合计</span>' : '') +
+'</div>';
+/* 与洞察卡只读弹窗同一套用法：主按钮显示「关闭」，点一下即关闭 */
+openModal(ledDateCn(iso) + ' ' + ledWeekday(iso) + ' · 当天收支', body,
+function(){ return true; }, '关闭', true);
 }
 /* 列表独立渲染：改筛选条件或切换日期时只重画列表与日历，不重建指标卡和两张图表 */
 function renderLedList(){
@@ -1413,11 +1462,11 @@ var d = daySum[t.date] || (daySum[t.date] = {expense: 0, income: 0});
 if (t.type === 'expense') d.expense += t.amount;
 else if (t.type === 'income') d.income += t.amount;
 });
-renderLedCalendar(rows, ledCalMonth || month, daySum);
-/* 选中某天时列表只看当天；「查看全月」时按原有方式平铺（分页 + 按日分组） */
-var viewRows = ledSelDate
-? rows.filter(function(t){ return t.date === ledSelDate; })
-: rows;
+/* 日历配色与单日弹窗都不看筛选；分组头的当日收支仍按筛选命中显示，保持台账口径 */
+renderLedCalendar(ledCalMonth || month, ledDaySumAll());
+/* 点日期只弹窗，不再把当天明细内联铺到日历下方。
+只有「查看全月」才在下方平铺命中记录（分页 + 按日分组）。 */
+var viewRows = ledViewAll ? rows : [];
 var shown = viewRows.slice(0, ledShown);
 /* 结果跨年时才给日期补上年份：两年前的 11-10 和今年的不能长得一样；
 单月/单年视图继续用短格式，不给眼睛加噪音。 */
@@ -1440,10 +1489,8 @@ var box = ledEl('led-list');
 if (box){
 var emptyTxt = '';
 if (!shown.length){
-if (ledSelDate && ledHasFilter(f))
-emptyTxt = '这一天没有符合筛选条件的记录，点「查看全月」看全部命中。';
-else if (ledSelDate)
-emptyTxt = ledDateCn(ledSelDate) + ' 还没有记录。点日历上别的日期，或点「查看全月」。';
+if (!ledViewAll)
+emptyTxt = '点日历上的某个日期，弹窗查看当天全部收支明细与合计。';
 else if (ledHasFilter(f))
 emptyTxt = '没有符合条件的记录，放宽条件或点「清空筛选」试试。';
 else
@@ -1455,13 +1502,12 @@ box.innerHTML = (shown.length ? html : '<div class="empty">' + emptyTxt + '</div
 (viewRows.length - ledShown) + ' 条）</button></div>'
 : '');
 }
-/* 当前查看范围：选中日期写清是哪天，查看全月则标明平铺 */
+/* 当前查看范围：默认引导看弹窗，查看全月则标明平铺 */
 var dt = ledEl('led-day-title');
 if (dt){
-dt.innerHTML = ledSelDate
-? '<strong>' + esc(ledDateCn(ledSelDate)) + ' ' + esc(ledWeekday(ledSelDate)) + '</strong>' +
-'<span>当天明细 · ' + viewRows.length + ' 笔</span>'
-: '<strong>全月明细</strong><span>按日期分组 · 共 ' + viewRows.length + ' 笔</span>';
+dt.innerHTML = ledViewAll
+? '<strong>全月明细</strong><span>按日期分组 · 共 ' + viewRows.length + ' 笔</span>'
+: '<strong>按日查看</strong><span>点日历上的日期查看当天明细</span>';
 }
 /* 命中摘要：让人明确知道现在看到的是筛选后的结果、还是全部 */
 var hit = ledEl('led-hit');
@@ -1477,7 +1523,7 @@ var line = scopeTxt + ' · ' + (ledHasFilter(f) ? '命中 ' : '共 ') + rows.len
 if (exp) line += ' · 支出 ' + money(exp);
 if (inc) line += ' · 收入 ' + money(inc);
 if (tr) line += ' · 转账 ' + tr + ' 笔';
-if (ledSelDate) line += ' · 当前只看 ' + ledSelDate.slice(5);
+if (!ledViewAll) line += ' · 点日期看当天明细';
 hit.textContent = line;
 }
 var lab = ledEl('led-month-label');
@@ -1493,6 +1539,7 @@ scope.value = 'all';
 }
 /* 筛选命中往往跨天，自动回到「查看全月」，保留原有的一屏看全部命中 */
 ledSelDate = '';
+ledViewAll = true;
 ledShown = LED_PAGE;
 renderLedList();
 }
@@ -1503,8 +1550,9 @@ if (el) el.value = '';
 });
 var scope = ledEl('led-scope');
 if (scope) scope.value = 'month';
-/* 清空筛选回到「只看今天」：不再把每一天的记录平铺重复列出 */
+/* 清空筛选回到「按日查看」：既不平铺每一天的记录，也不在下方内联展开当天 */
 ledSelDate = today();
+ledViewAll = false;
 ledEnsureSel(ledCalMonth || thisMonth());
 ledShown = LED_PAGE;
 renderLedList();
@@ -1513,11 +1561,13 @@ renderLedList();
 function ledSelectDate(iso){
 if (!iso) return;
 ledSelDate = iso;
-ledShown = LED_PAGE;
-renderLedList();
+/* 只重画日历高亮，下方列表一概不动：弹窗关闭后页面自然就是原样 */
+renderLedCalendar(ledCalMonth || thisMonth(), ledDaySumAll());
+ledOpenDay(iso);
 }
 function ledShowAll(){
 ledSelDate = '';
+ledViewAll = true;
 ledShown = LED_PAGE;
 renderLedList();
 }
@@ -1535,6 +1585,7 @@ function ledGoToday(){
 var el = ledEl('led-month');
 if (el) el.value = thisMonth();
 ledSelDate = today();
+ledViewAll = false;
 renderLedger();
 }
 ;
