@@ -407,22 +407,34 @@ window.alert = function(msg){ showAlert(msg); };
 window.alert.error = function(msg){ showAlert(msg, {kind:'error'}); };
 window.alert.success = function(msg){ showAlert(msg, {kind:'success'}); };
 /* ================= 表单弹窗 ================= */
-var modalOK = null;
+var modalOK = null, modalReturn = null;
 function openModal(title, bodyHTML, onOK, okLabel, hideCancel, okClass){
+var mask = document.getElementById('modal-mask');
 document.getElementById('modal-title').textContent = title;
 document.getElementById('modal-body').innerHTML = bodyHTML;
 modalOK = onOK;
+/* 每次打开都是新的一层：清掉上一层的「关闭后返回」动作与单日弹窗标记。
+调用方若要「关闭后回到原弹窗」，在 openModal 之后再设置 modalReturn。 */
+modalReturn = null;
+delete mask.dataset.day;
 var okBtn = document.getElementById('modal-ok');
 okBtn.textContent = okLabel || '保存';
 okBtn.className = 'btn ' + (okClass || 'btn-primary');
 var cancel = document.getElementById('modal-cancel');
 if (cancel) cancel.style.display = hideCancel ? 'none' : '';
 hideUndo();
-document.getElementById('modal-mask').classList.add('show');
+mask.classList.add('show');
 }
 function closeModal(){
-document.getElementById('modal-mask').classList.remove('show');
+var mask = document.getElementById('modal-mask');
+mask.classList.remove('show');
+delete mask.dataset.day;
 modalOK = null;
+/* 编辑弹窗由单日弹窗点进来：保存 / 取消 / Esc / 点遮罩都会回到当日弹窗，
+且只用一次，避免第二次关闭时又弹回来。 */
+var back = modalReturn;
+modalReturn = null;
+if (back) back();
 }
 document.getElementById('modal-ok').addEventListener('click', async function(){
 if (!modalOK) return;
@@ -512,6 +524,9 @@ dca: dca, fixed: fixed, autoTx: autoTx, skips: skips};
 async function reload(){
 db = normalize(await api('/api/data'));
 renderAll();
+/* 单日弹窗里的记录被编辑/删除/撤销后，数据变了但弹窗 DOM 还是旧的。
+就地刷新一次弹窗内容（不重开弹窗，撤销提示才不会被 hideUndo 清掉）。 */
+if (typeof ledRefreshDay === 'function') ledRefreshDay();
 }
 ;
 /* ================= 渲染：资产总览 ================= */
@@ -1326,7 +1341,8 @@ if (hay.indexOf(f.q) < 0) return false;
 return true;
 }
 /* 单行 HTML。日期已由分组头给，行里不再重复一列日期，正文能多显示几个字。
-readOnly=true 用于单日弹窗：只展示，去掉编辑/删除入口，避免弹窗里再套弹窗。 */
+单日弹窗同样用可编辑行（点行编辑、点「删」删除）：编辑弹窗由返回栈接回当日弹窗，
+删除则由 reload() 就地刷新，不会留下过期内容。readOnly 仅留给不需要入口的外部展示。 */
 function ledRowHtml(t, readOnly){
 var sign, catLabel;
 if (t.type === 'expense'){ sign = '−'; catLabel = t.category; }
@@ -1427,14 +1443,21 @@ html += '<button type="button" class="' + cls + '" data-act="led-day" data-date=
 }
 grid.innerHTML = html;
 }
-/* 单日明细弹窗：展示该日全部记录 + 支出/收入/合计；关闭后页面原样不动 */
-function ledOpenDay(iso){
+/* 单日弹窗内容：该日全部记录 + 支出/收入/合计。抽成纯函数，
+编辑/删除后可以不重开弹窗、就地换掉内容（保留撤销提示）。 */
+function ledDayBody(iso){
 var list = ledDayRows(iso);
 var s = ledDaySumAll()[iso] || {expense: 0, income: 0, transfer: 0};
 var net = ledNetOf(s), tone = ledNetTone(net);
-var body = list.length
-? '<div class="day-lines">' + list.map(function(t){ return ledRowHtml(t, true); }).join('') + '</div>'
-: '<div class="day-empty">这一天还没有记录。</div>';
+var body = '';
+if (list.length){
+body += '<div class="muted" style="font-size:11.5px;margin:0 0 6px">' +
+'点某条记录可编辑，点「删」删除这一笔。</div>';
+body += '<div class="day-lines">' +
+list.map(function(t){ return ledRowHtml(t); }).join('') + '</div>';
+} else {
+body += '<div class="day-empty">这一天还没有记录。</div>';
+}
 var netTxt = privacyOn ? PRIVACY_MASK : ((net >= 0 ? '+' : '−') + num(Math.abs(net)));
 body += '<div class="day-sum">' +
 '<span><span class="lbl">支出</span> −' + money(s.expense) + '</span>' +
@@ -1443,9 +1466,41 @@ body += '<div class="day-sum">' +
 (tone === 'in' ? 'pos' : (tone === 'out' ? 'neg' : '')) + '">' + netTxt + '</b></span>' +
 (s.transfer ? '<span class="lbl">另有转账 ' + s.transfer + ' 笔，不计入合计</span>' : '') +
 '</div>';
-/* 与洞察卡只读弹窗同一套用法：主按钮显示「关闭」，点一下即关闭 */
-openModal(ledDateCn(iso) + ' ' + ledWeekday(iso) + ' · 当天收支', body,
-function(){ return true; }, '关闭', true);
+return {
+title: ledDateCn(iso) + ' ' + ledWeekday(iso) + ' · 当天收支',
+body: body
+};
+}
+/* 当前打开的是不是单日弹窗、是哪一天。标记挂在遮罩上，openModal/closeModal 会自动清。 */
+function ledDayIsoOf(){
+var mask = document.getElementById('modal-mask');
+if (!mask || !mask.classList.contains('show')) return '';
+return mask.dataset.day || '';
+}
+/* 数据变更后只换弹窗内容：不调 openModal，撤销 toast 不会被 hideUndo 清掉，
+弹窗也不会闪一下。由 reload() 在每次数据刷新后调用。 */
+function ledRefreshDay(){
+var iso = ledDayIsoOf();
+if (!iso) return;
+var x = ledDayBody(iso);
+document.getElementById('modal-title').textContent = x.title;
+document.getElementById('modal-body').innerHTML = x.body;
+}
+function ledOpenDay(iso){
+var x = ledDayBody(iso);
+/* 与洞察卡弹窗同一套用法：主按钮显示「关闭」，点一下即关闭 */
+openModal(x.title, x.body, function(){ return true; }, '关闭', true);
+var mask = document.getElementById('modal-mask');
+if (mask) mask.dataset.day = iso;
+}
+/* 弹窗内点行编辑：编辑弹窗会覆盖当日弹窗，保存/取消/Esc/点遮罩后回到这一天。
+返回动作必须在 openModal 之后设置（openModal 会清掉它）。 */
+function ledDayEdit(id){
+var iso = ledDayIsoOf();
+var exists = db.transactions.some(function(t){ return t.id === id; });
+if (!exists) return;
+openTxModal(id);
+if (iso) modalReturn = function(){ ledOpenDay(iso); };
 }
 /* 列表独立渲染：改筛选条件或切换日期时只重画列表与日历，不重建指标卡和两张图表 */
 function renderLedList(){
@@ -3117,9 +3172,14 @@ return delAutoTx(id, el ? el.getAttribute('data-date') : '');
 'led-cal-next': function(){ ledShiftMonth(1); }
 };
 function runAction(el){
-var fn = ACTIONS[el.getAttribute('data-act')];
+var act = el.getAttribute('data-act');
+var fn = ACTIONS[act];
 if (!fn) return;
 var id = el.getAttribute('data-id');
+if (act === 'tx-edit' && typeof ledDayIsoOf === 'function' && ledDayIsoOf()){
+ledDayEdit(id);
+return;
+}
 var r = fn(id, el);
 if (r && r.catch) r.catch(function(e){ alert.error((e && e.message) || '操作失败'); });
 }
