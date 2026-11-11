@@ -1171,6 +1171,14 @@ fillAccountSelects();
 筛选是纯前端过滤（数据本来就在内存里），不改后端接口。
 切页签、记一笔不会把已展开的页数收回去；只有改筛选条件才回到第一批。 */
 var LED_PAGE = 50, ledShown = LED_PAGE, ledMonth = '';
+/* 日历视图：ledCalMonth 跟随顶部月份选择器；ledSelDate 为空表示「查看全月」。
+默认选中今天——清空筛选后只列出当天明细，不再把每天的记录平铺重复展示。 */
+var ledCalMonth = '', ledSelDate = '', ledCalInit = false;
+function ledPad2(n){ return n < 10 ? '0' + n : String(n); }
+function ledEnsureSel(month){
+if (ledSelDate && monthKey(ledSelDate) !== month)
+ledSelDate = (month === thisMonth()) ? today() : month + '-01';
+}
 function ledMore(){
 ledShown += LED_PAGE;
 renderLedList();
@@ -1180,6 +1188,9 @@ ROLL_SLOTS.length = 0;
 renderFixed();
 var month = document.getElementById('led-month').value || thisMonth();
 if (ledMonth !== month){ ledMonth = month; ledShown = LED_PAGE; }
+if (!ledCalInit){ ledCalInit = true; ledSelDate = today(); }
+ledCalMonth = month;
+ledEnsureSel(month);
 var m = monthStats(month);
 document.getElementById('led-metrics').innerHTML =
 metricCard('本月支出', moneyShort(m.expense), m.count + ' 笔记录', null, rollIndex(m.expense)) +
@@ -1346,7 +1357,48 @@ return '<div class="list-item' + (t.auto ? '' : ' is-editable') + '"' +
 : '<button class="btn btn-sm" data-act="tx-delete" data-id="' + esc(t.id) + '">删</button>') +
 '</div>';
 }
-/* 列表独立渲染：改筛选条件时只重画列表，不重建指标卡和两张图表 */
+/* ================= 明细日历 ================= */
+/* 日历只是视图层：金额来自当前筛选命中的记录，按日期聚合「收入 − 支出」，
+转账不进合计；点格子把下方列表切到当天，「查看全月」恢复平铺。 */
+function ledCalAmt(v){
+if (privacyOn) return PRIVACY_MASK;
+return (v >= 0 ? '+' : '-') + Math.abs(v).toFixed(2);
+}
+function ledDateCn(iso){
+return (+String(iso).slice(5, 7)) + '月' + (+String(iso).slice(8, 10)) + '日';
+}
+function renderLedCalendar(rows, month, daySum){
+var title = ledEl('led-cal-title'), grid = ledEl('led-cal-grid');
+if (!title || !grid) return;
+var y = +month.slice(0, 4), m = +month.slice(5, 7);
+if (!y || !m) return;
+title.textContent = y + '年 ' + m + '月';
+var first = new Date(y, m - 1, 1).getDay();
+var days = new Date(y, m, 0).getDate();
+var t0 = today(), html = '', i;
+for (i = 0; i < first; i++) html += '<span class="led-cal-cell blank"></span>';
+for (var d = 1; d <= days; d++){
+var iso = month + '-' + ledPad2(d);
+var s = daySum[iso] || {expense: 0, income: 0};
+var net = s.income - s.expense;
+var has = !!daySum[iso], future = iso > t0;
+var cls = 'led-cal-cell';
+if (net < -0.005) cls += ' has-out';
+else if (net > 0.005) cls += ' has-in';
+if (iso === t0) cls += ' is-today';
+if (future) cls += ' is-future';
+if (iso === ledSelDate) cls += ' is-sel';
+var vCls = net > 0.005 ? ' pos' : (net < -0.005 ? ' neg' : '');
+var v = (has && !future) ? ledCalAmt(net) : '';
+html += '<button type="button" class="' + cls + '" data-act="led-day" data-date="' + iso +
+'" aria-label="' + iso + (iso === t0 ? ' 今天' : '') + ' 净额 ' + (v || '0.00') + '">' +
+'<span class="d">' + d + '</span>' +
+(v ? '<span class="v' + vCls + '">' + v + '</span>' : '') +
+(iso === t0 ? '<span class="today-dot"></span>' : '') + '</button>';
+}
+grid.innerHTML = html;
+}
+/* 列表独立渲染：改筛选条件或切换日期时只重画列表与日历，不重建指标卡和两张图表 */
 function renderLedList(){
 var monthEl = ledEl('led-month');
 var month = (monthEl && monthEl.value) || thisMonth();
@@ -1361,10 +1413,15 @@ var d = daySum[t.date] || (daySum[t.date] = {expense: 0, income: 0});
 if (t.type === 'expense') d.expense += t.amount;
 else if (t.type === 'income') d.income += t.amount;
 });
-var shown = rows.slice(0, ledShown);
+renderLedCalendar(rows, ledCalMonth || month, daySum);
+/* 选中某天时列表只看当天；「查看全月」时按原有方式平铺（分页 + 按日分组） */
+var viewRows = ledSelDate
+? rows.filter(function(t){ return t.date === ledSelDate; })
+: rows;
+var shown = viewRows.slice(0, ledShown);
 /* 结果跨年时才给日期补上年份：两年前的 11-10 和今年的不能长得一样；
 单月/单年视图继续用短格式，不给眼睛加噪音。 */
-var withYear = ledSpansYears(rows);
+var withYear = ledSpansYears(viewRows);
 var html = '', lastDate = '';
 shown.forEach(function(t){
 if (t.date !== lastDate){
@@ -1381,14 +1438,30 @@ html += ledRowHtml(t);
 });
 var box = ledEl('led-list');
 if (box){
-box.innerHTML = (shown.length ? html
-: '<div class="empty">' + (ledHasFilter(f)
-? '没有符合条件的记录，放宽条件或点「清空筛选」试试。'
-: '这个月还没有记录') + '</div>') +
-(rows.length > ledShown
+var emptyTxt = '';
+if (!shown.length){
+if (ledSelDate && ledHasFilter(f))
+emptyTxt = '这一天没有符合筛选条件的记录，点「查看全月」看全部命中。';
+else if (ledSelDate)
+emptyTxt = ledDateCn(ledSelDate) + ' 还没有记录。点日历上别的日期，或点「查看全月」。';
+else if (ledHasFilter(f))
+emptyTxt = '没有符合条件的记录，放宽条件或点「清空筛选」试试。';
+else
+emptyTxt = '这个月还没有记录';
+}
+box.innerHTML = (shown.length ? html : '<div class="empty">' + emptyTxt + '</div>') +
+(viewRows.length > ledShown
 ? '<div class="led-more"><button class="btn" data-act="led-more">显示更多（还有 ' +
-(rows.length - ledShown) + ' 条）</button></div>'
+(viewRows.length - ledShown) + ' 条）</button></div>'
 : '');
+}
+/* 当前查看范围：选中日期写清是哪天，查看全月则标明平铺 */
+var dt = ledEl('led-day-title');
+if (dt){
+dt.innerHTML = ledSelDate
+? '<strong>' + esc(ledDateCn(ledSelDate)) + ' ' + esc(ledWeekday(ledSelDate)) + '</strong>' +
+'<span>当天明细 · ' + viewRows.length + ' 笔</span>'
+: '<strong>全月明细</strong><span>按日期分组 · 共 ' + viewRows.length + ' 笔</span>';
 }
 /* 命中摘要：让人明确知道现在看到的是筛选后的结果、还是全部 */
 var hit = ledEl('led-hit');
@@ -1404,6 +1477,7 @@ var line = scopeTxt + ' · ' + (ledHasFilter(f) ? '命中 ' : '共 ') + rows.len
 if (exp) line += ' · 支出 ' + money(exp);
 if (inc) line += ' · 收入 ' + money(inc);
 if (tr) line += ' · 转账 ' + tr + ' 笔';
+if (ledSelDate) line += ' · 当前只看 ' + ledSelDate.slice(5);
 hit.textContent = line;
 }
 var lab = ledEl('led-month-label');
@@ -1417,6 +1491,8 @@ if (ev && ev.target && ev.target.id === 'led-q' && scope && q &&
 String(q.value || '').trim() && scope.value !== 'all'){
 scope.value = 'all';
 }
+/* 筛选命中往往跨天，自动回到「查看全月」，保留原有的一屏看全部命中 */
+ledSelDate = '';
 ledShown = LED_PAGE;
 renderLedList();
 }
@@ -1427,8 +1503,39 @@ if (el) el.value = '';
 });
 var scope = ledEl('led-scope');
 if (scope) scope.value = 'month';
+/* 清空筛选回到「只看今天」：不再把每一天的记录平铺重复列出 */
+ledSelDate = today();
+ledEnsureSel(ledCalMonth || thisMonth());
 ledShown = LED_PAGE;
 renderLedList();
+}
+/* ================= 日历交互 ================= */
+function ledSelectDate(iso){
+if (!iso) return;
+ledSelDate = iso;
+ledShown = LED_PAGE;
+renderLedList();
+}
+function ledShowAll(){
+ledSelDate = '';
+ledShown = LED_PAGE;
+renderLedList();
+}
+/* 切月同步顶部月份选择器，指标卡与两张图表一起跟着变 */
+function ledShiftMonth(delta){
+var base = ledCalMonth || thisMonth();
+var y = +base.slice(0, 4), m = +base.slice(5, 7) - 1 + delta;
+var d = new Date(y, m, 1);
+var next = d.getFullYear() + '-' + ledPad2(d.getMonth() + 1);
+var el = ledEl('led-month');
+if (el) el.value = next;
+renderLedger();
+}
+function ledGoToday(){
+var el = ledEl('led-month');
+if (el) el.value = thisMonth();
+ledSelDate = today();
+renderLedger();
 }
 ;
 /* ============ 自定义周期花销：发薪日不固定，按任意起止区间统计 ============ */
@@ -2951,7 +3058,12 @@ var ACTIONS = {
 return delAutoTx(id, el ? el.getAttribute('data-date') : '');
 },
 'led-more': ledMore,
-'led-clear': ledClearFilters
+'led-clear': ledClearFilters,
+'led-day': function(id, el){ ledSelectDate(el ? el.getAttribute('data-date') : ''); },
+'led-all': ledShowAll,
+'led-today': ledGoToday,
+'led-cal-prev': function(){ ledShiftMonth(-1); },
+'led-cal-next': function(){ ledShiftMonth(1); }
 };
 function runAction(el){
 var fn = ACTIONS[el.getAttribute('data-act')];
