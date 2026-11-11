@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <title>本地个人财务管理</title>
-<link rel="stylesheet" href="app.e8c64fc146.css">
+<link rel="stylesheet" href="app.ea0e2ca4b1.css">
 </head>
 <body>
 <header>
@@ -26,6 +26,11 @@
 
 <div class="wrap">
 <div class="help" id="boot-error" style="display:none;background:rgba(255,59,48,.08);color:#c0392b"></div>
+
+<div class="reimb-bar">
+  <label class="rb-sw"><input type="checkbox" id="reimb-toggle">统计时剔除「公司报销」</label>
+  <span class="rb-info" id="reimb-info"></span>
+</div>
 
 <section id="tab-overview" class="tab show">
   <div class="bk-bar" id="bk-bar" style="display:none"></div>
@@ -97,6 +102,12 @@
       <div class="field" style="flex:1 1 128px">
         <label>备注 (可选)</label>
         <input type="text" id="tx-note" maxlength="60" placeholder="如：午饭">
+      </div>
+      <div class="field" id="f-reimb" style="flex:0 0 100%">
+        <label style="flex-direction:row;align-items:center;gap:7px;cursor:pointer;color:var(--text)">
+          <input type="checkbox" id="tx-reimb" style="width:16px;height:16px;accent-color:var(--primary)">
+          公司报销（总开关开启时不计入统计）
+        </label>
       </div>
       <button class="btn btn-primary" type="submit" id="tx-submit">添加</button>
     </form>
@@ -340,14 +351,14 @@
   </div>
 </div>
 
-<script src="localdb.js?v=33"></script>
+<script src="localdb.js?v=34"></script>
 <script src="lib/chart.umd.min.js"></script>
 <script>
 if (typeof Chart === 'undefined') {
   document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"><\/script>');
 }
 </script>
-<script src="app.4eab2761bf.js"></script><script>
+<script src="app.c7eea6e910.js"></script><script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('sw.js').catch(function () {});

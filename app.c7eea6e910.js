@@ -114,10 +114,49 @@ db 只在 reload() 里整体替换，所以用「db 引用」当缓存版本：�
 · monthStats 在一次完整渲染里被调用 30 次，不缓存就是同一次全量扫描做 30 遍；
 · buildSeries 是「日期 × 账户」的双层循环，资产页和分析页各算一遍。
 缓存对象只读，调用方不得原地修改。 */
-var _cache = {db:null, txAll:null, balances:null, months:null, series:null, size:null};
+/* ================= 报销标记与统计总开关 =================
+reimbursable 是流水本身的属性，随数据落库、导出、备份一起走；
+excludeReimb 只是本地显示口径：打开时被标记「公司报销」的流水不进入任何收支统计，
+关闭时全部照常计入。余额、账户资产、净资产曲线始终按真实流水算，不受开关影响。 */
+var REIMB_KEY = 'jz_exclude_reimb';
+var excludeReimb = false;
+try { excludeReimb = localStorage.getItem(REIMB_KEY) === '1'; } catch(e){}
+function invalidateStats(){ _cache.statTx = null; _cache.months = null; }
+function setExcludeReimb(v){
+excludeReimb = !!v;
+try { localStorage.setItem(REIMB_KEY, excludeReimb ? '1' : '0'); } catch(e){}
+invalidateStats();
+renderAll();
+}
+/* 统计口径的流水：月度收支、花销洞察、自定义周期都走这里，一处收口 */
+function statTx(){
+var c = cache();
+if (!c.statTx){
+var list = allTx();
+c.statTx = excludeReimb
+? list.filter(function(t){ return !t.reimbursable; })
+: list;
+}
+return c.statTx;
+}
+function updateReimbBar(){
+var box = document.getElementById('reimb-toggle');
+var info = document.getElementById('reimb-info');
+if (box) box.checked = excludeReimb;
+if (!info) return;
+var m = thisMonth(), n = 0, sum = 0;
+allTx().forEach(function(t){
+if (t.reimbursable && t.type === 'expense' &&
+monthKey(t.date) === m && t.date <= today()){ n++; sum += t.amount; }
+});
+if (!n){ info.textContent = '本月暂无报销标记'; return; }
+info.textContent = '本月已标记 ' + n + ' 笔 ' + money(sum) +
+(excludeReimb ? ' · 已从统计中剔除' : ' · 当前全部计入统计');
+}
+var _cache = {db:null, txAll:null, statTx:null, balances:null, months:null, series:null, size:null};
 function cache(){
 if (_cache.db !== db){
-_cache = {db:db, txAll:null, balances:null, months:null, series:null, size:null};
+_cache = {db:db, txAll:null, statTx:null, balances:null, months:null, series:null, size:null};
 }
 return _cache;
 }
@@ -194,8 +233,9 @@ var c = cache();
 if (c.months) return c.months;
 var t0 = today(), idx = {};
 /* 自动固定支出计入收支统计；定投是 transfer，天然不会被统计。
+总开关打开时，被标记「公司报销」的流水在这里被整体剔除（含分类构成）。
 未来日期的记录尚未生效，与余额、周期统计保持同一口径，这里统一排除。 */
-allTx().forEach(function(t){
+statTx().forEach(function(t){
 if (t.date > t0) return;
 var k = monthKey(t.date);
 var m = idx[k] || (idx[k] = {income:0, expense:0, count:0, byCat:{}, balance:0});
@@ -431,7 +471,8 @@ var transactions = (d.transactions || []).map(function(t){
 return {
 id: t.id, date: t.date, type: t.type,
 accountId: t.accountId || '', toAccountId: t.toAccountId || '',
-category: t.category || '', amount: +t.amount || 0, note: t.note || ''
+category: t.category || '', amount: +t.amount || 0, note: t.note || '',
+reimbursable: !!t.reimbursable
 };
 });
 var dca = (d.dca || []).map(function(v){
@@ -447,7 +488,7 @@ id: v.id, ruleId: v.ruleId || v.rule_id || 'default',
 effectiveFrom: v.effectiveFrom || '', amount: +v.amount || 0,
 accountId: v.accountId || '', category: v.category || '其他',
 weekdaysOnly: v.weekdaysOnly === true, monthlyDay: +v.monthlyDay || 0,
-enabled: v.enabled !== false
+enabled: v.enabled !== false, reimbursable: !!v.reimbursable
 };
 });
 /* autoTx 含两类：dca=transfer（净资产不变）、fixed=expense（净资产减少） */
@@ -457,7 +498,7 @@ date: t.date, type: t.type || 'transfer',
 accountId: t.accountId || '', toAccountId: t.toAccountId || '',
 category: t.category || '', amount: +t.amount || 0,
 note: t.note || '', auto: true, autoKind: t.autoKind || AUTO_KIND.DCA,
-ruleId: t.ruleId || ''
+ruleId: t.ruleId || '', reimbursable: !!t.reimbursable
 };
 });
 /* 手动删除的自动支出：自动支出是按日历派生的，删不掉「那一天」本身，
@@ -549,7 +590,7 @@ return w === 0 || w === 6;
 function spendIn(from, to){
 var t0 = today();
 var end = to > t0 ? t0 : to;
-return allTx().filter(function(t){
+return statTx().filter(function(t){
 return t.type === 'expense' && t.date >= from && t.date <= end && t.date <= t0;
 });
 }
@@ -1119,6 +1160,8 @@ b.classList.toggle('on', b.dataset.type === t);
 });
 document.getElementById('f-cat').style.display = (t === 'transfer') ? 'none' : '';
 document.getElementById('f-to').style.display = (t === 'transfer') ? '' : 'none';
+var rb = document.getElementById('f-reimb');
+if (rb) rb.style.display = (t === 'transfer') ? 'none' : '';
 document.getElementById('lbl-from').textContent = (t === 'transfer') ? '转出账户' : '账户';
 document.getElementById('tx-submit').textContent = (t === 'transfer') ? '转账' : '添加';
 if (t !== 'transfer') fillCatSelect();
@@ -1264,6 +1307,7 @@ var from = accountById(t.accountId), to = accountById(t.toAccountId);
 var hay = [t.note, t.category, from ? from.name : '', to ? to.name : '',
 t.type === 'transfer' ? '转账' : '',
 t.autoKind === AUTO_KIND.DCA ? '定投' : '', t.auto ? '自动' : '',
+t.reimbursable ? '报销' : '',
 String(t.amount)].join(' ').toLowerCase();
 if (hay.indexOf(f.q) < 0) return false;
 }
@@ -1290,7 +1334,10 @@ var plain = catLabel + (acc && t.type !== 'transfer' ? ' · ' + acc.name : '') +
 (showNote ? ' · ' + t.note : '');
 return '<div class="list-item' + (t.auto ? '' : ' is-editable') + '"' +
 (t.auto ? '' : ' role="button" tabindex="0" data-act="tx-edit" data-id="' + esc(t.id) + '"') + '>' +
-'<span class="grow"><span title="' + esc(plain) + '">' + esc(plain) + '</span></span>' +
+'<span class="grow"><span title="' + esc(plain) + '">' + esc(plain) + '</span>' +
+(t.reimbursable
+? '<span class="tag" style="margin-left:6px;background:var(--primary-weak);color:var(--primary)">报销</span>'
+: '') + '</span>' +
 '<span class="amt ' + (t.type === 'expense' ? 'neg' : (t.type === 'income' ? 'pos' : 'muted')) + '">' +
 (t.type === 'transfer' ? money(t.amount) : sign + num(t.amount)) + '</span>' +
 (t.auto
@@ -1443,7 +1490,7 @@ cpRender();
 function cpStats(from, to){
 var end = to > today() ? today() : to;
 var inc = 0, exp = 0, expCnt = 0, auto = 0, byCat = {}, list = [];
-allTx().forEach(function(t){
+statTx().forEach(function(t){
 if (!t.date || t.date < from || t.date > end) return;
 var a = t.amount || 0;
 if (t.type === 'income'){
@@ -1691,12 +1738,13 @@ document.getElementById('data-stats').textContent =
 '账户 ' + db.accounts.length + ' 个 · 流水 ' + db.transactions.length + ' 条 · 自动 ' +
 db.autoTx.length + ' 笔 · 约 ' + (bytes/1024).toFixed(1) + ' KB';
 document.getElementById('data-desc').textContent =
-'数据保存在本机 SQLite 文件里（data/finance.db），不上传任何服务器。余额由「建账余额 + 累计流水 + 每日定投 + 固定支出规则」自动推导；定投与固定支出按日历派生、不写入流水表，但都会显示在明细里——定投是账户间转账，只在两个账户间挪钱、不计入收支；固定支出是真实花销，计入支出统计。固定支出支持每天、仅工作日与每月固定日（如房租）。活期、银行卡、银行理财分别独立核算。删改任何一笔真实流水后余额和曲线都会立即重算。';
+'数据保存在本机 SQLite 文件里（data/finance.db），不上传任何服务器。余额由「建账余额 + 累计流水 + 每日定投 + 固定支出规则」自动推导；定投与固定支出按日历派生、不写入流水表，但都会显示在明细里——定投是账户间转账，只在两个账户间挪钱、不计入收支；固定支出是真实花销，计入支出统计。固定支出支持每天、仅工作日与每月固定日（如房租）。标为「公司报销」的流水照常扣余额、照常显示在明细里，只有打开顶部总开关后才从统计分析中剔除，关掉即全部恢复。活期、银行卡、银行理财分别独立核算。删改任何一笔真实流水后余额和曲线都会立即重算。';
 }
 /* ================= 总渲染 ================= */
 function renderAll(){
 stopRoll();
 ROLL_SLOTS.length = 0;
+updateReimbBar();
 fillAccountSelects();
 renderInsights();
 tabById(activeTab).render();
@@ -1954,6 +2002,9 @@ account_id: accId,
 amount: amount,
 note: document.getElementById('tx-note').value.trim()
 };
+if (txType !== 'transfer'){
+payload.reimbursable = document.getElementById('tx-reimb').checked;
+}
 if (txType === 'transfer'){
 payload.to_account_id = document.getElementById('tx-to').value;
 } else {
@@ -2019,7 +2070,7 @@ showUndo('已删除 ' + txLabel(t), async function(){
 await api('/api/transactions', {method:'POST', body:{
 date: t.date, type: t.type, account_id: t.accountId,
 to_account_id: t.toAccountId, category: t.category,
-amount: t.amount, note: t.note
+amount: t.amount, note: t.note, reimbursable: !!t.reimbursable
 }});
 await reload();
 });
@@ -2083,7 +2134,10 @@ body += '<div class="field"><label>调整额 (¥，可负)</label>' +
 body += '<div class="field"><label>金额 (¥)</label>' +
 '<input type="number" id="et-amount" step="0.01" min="0.01" value="' + amtVal + '" placeholder="' + ph + '"></div>' +
 '<div class="field"><label>分类</label><select id="et-cat">' + catOptions(t.type, t.category) + '</select></div>' +
-'<div class="field"><label>账户</label><select id="et-from">' + acctOptions(t.accountId) + '</select></div>';
+'<div class="field"><label>账户</label><select id="et-from">' + acctOptions(t.accountId) + '</select></div>' +
+'<div class="field"><label style="flex-direction:row;align-items:center;gap:7px;cursor:pointer">' +
+'<input type="checkbox" id="et-reimb" style="width:16px;height:16px" ' +
+(t.reimbursable ? 'checked' : '') + '> 公司报销（总开关开启时不计入统计）</label></div>';
 }
 body += '<div class="field"><label>备注 (可选)</label>' +
 '<input id="et-note" maxlength="60" value="' + esc(t.note) + '"></div>' +
@@ -2101,6 +2155,10 @@ account_id: document.getElementById('et-from').value,
 amount: amt,
 note: document.getElementById('et-note').value.trim()
 };
+if (t.type === 'expense' || t.type === 'income'){
+var rb = document.getElementById('et-reimb');
+payload.reimbursable = rb ? rb.checked : !!t.reimbursable;
+}
 if (t.type === 'transfer'){
 payload.to_account_id = document.getElementById('et-to').value;
 } else if (t.type === 'expense' || t.type === 'income'){
@@ -2322,7 +2380,10 @@ var freq = c.monthlyDay ? '每月 ' + c.monthlyDay + ' 号'
 : (c.weekdaysOnly ? '每个工作日' : '每天');
 var top = '<div class="fx-top">' +
 '<span class="fx-amt">' + money(c.amount) + '</span>' +
-'<span class="muted">/ ' + freq + '</span>' + tag + '</div>';
+'<span class="muted">/ ' + freq + '</span>' + tag +
+(c.reimbursable
+? '<span class="tag" style="background:var(--primary-weak);color:var(--primary)">报销</span>'
+: '') + '</div>';
 var meta = '<div class="fx-meta">' + esc(c.category) + ' · ' +
 esc(acc ? acc.name : '账户已删除') + '<br>' +
 '本月 ' + s.mCount + ' 笔 ' + money(s.mTotal) +
@@ -2428,6 +2489,9 @@ return '<option value="' + esc(a.id) + '"' + (a.id === aid ? ' selected' : '') +
 '<div class="field"><label>状态</label><select id="fx-on">' +
 '<option value="on"' + (!c || c.enabled ? ' selected' : '') + '>启用</option>' +
 '<option value="off"' + (c && !c.enabled ? ' selected' : '') + '>停用</option></select></div>' +
+'<div class="field"><label style="flex-direction:row;align-items:center;gap:7px;cursor:pointer;color:var(--text)">' +
+'<input type="checkbox" id="fx-reimb" style="width:16px;height:16px" ' +
+(c && c.reimbursable ? 'checked' : '') + '> 公司报销（总开关开启时不计入统计）</label></div>' +
 startField +
 '<span class="muted" id="fx-hint" style="font-size:11.5px;line-height:1.7;display:block"></span>' +
 '<span class="muted" style="font-size:11.5px;line-height:1.7;display:block;margin-top:6px">' +
@@ -2444,7 +2508,8 @@ amount: v,
 accountId: document.getElementById('fx-acct').value,
 category: document.getElementById('fx-cat').value,
 weekdaysOnly: cal === 'weekday',
-enabled: document.getElementById('fx-on').value === 'on'
+enabled: document.getElementById('fx-on').value === 'on',
+reimbursable: document.getElementById('fx-reimb').checked
 };
 if (monthly){
 if (isNew){
@@ -2490,7 +2555,8 @@ try {
 await api('/api/fixed', {method:'POST', body:{
 ruleId: r.ruleId, amount: c.amount, accountId: c.accountId,
 category: c.category, weekdaysOnly: c.weekdaysOnly,
-monthlyDay: c.monthlyDay || 0, enabled: !c.enabled
+monthlyDay: c.monthlyDay || 0, enabled: !c.enabled,
+reimbursable: !!c.reimbursable
 }});
 await reload();
 alert.success(c.enabled ? '已停用，从今天起不再扣款。' : '已启用，从今天起恢复扣款。');
@@ -2766,13 +2832,14 @@ el.style.display = '';
 function exportCSV(kind){
 var rows = [];
 if (kind === 'transactions'){
-rows.push(['日期','类型','账户','转入账户','分类','金额','备注']);
+rows.push(['日期','类型','账户','转入账户','分类','金额','报销','备注']);
 /* 明细里显示什么就导出什么（定投转账 + 固定支出），否则导出与界面对不上 */
 db.transactions.concat(db.autoTx).forEach(function(t){
 var a = accountById(t.accountId), b = accountById(t.toAccountId);
 rows.push([t.date,
 {expense:'支出', income:'收入', transfer:'转账', adjust:'余额调整'}[t.type] || t.type,
 a ? a.name : '', b ? b.name : '', t.category, t.amount,
+t.reimbursable ? '是' : '',
 t.note + (t.auto ? ' [规则自动生成]' : '')]);
 });
 } else {
@@ -2926,6 +2993,9 @@ document.getElementById('tx-kind').addEventListener('click', function(e){
 var btn = e.target.closest('button[data-type]');
 if (btn) setTxType(btn.dataset.type);
 });
+document.getElementById('reimb-toggle').addEventListener('change', function(e){
+setExcludeReimb(e.target.checked);
+});
 document.getElementById('tx-form').addEventListener('submit', submitTx);
 document.getElementById('tx-amount').addEventListener('input', updateTxHint);
 document.getElementById('tx-acct').addEventListener('change', updateTxHint);
@@ -2949,6 +3019,7 @@ console.warn('缺少页签容器：section#tab-' + t.id);
 }
 });
 updatePrivacyBtn();
+updateReimbBar();
 document.getElementById('tx-date').value = today();
 document.getElementById('led-month').value = thisMonth();
 setTxType('expense');

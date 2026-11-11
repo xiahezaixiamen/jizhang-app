@@ -227,7 +227,8 @@
           date: iso, type: 'expense', accountId: cur.accountId, toAccountId: '',
           category: cur.category, amount: cur.amount,
           note: cur.monthlyDay ? '每月固定支出' : '每日固定支出',
-          auto: true, autoKind: 'fixed', ruleId: rid
+          auto: true, autoKind: 'fixed', ruleId: rid,
+          reimbursable: !!cur.reimbursable
         };
       }));
     });
@@ -417,7 +418,9 @@
       var row = {
         id: newId(), date: date, type: typ, accountId: aid,
         toAccountId: typ === 'transfer' ? toAid : '', category: category,
-        amount: amount, note: note, _seq: nextSeq(), created_at: new Date().toISOString()
+        amount: amount, note: note,
+        reimbursable: (typ === 'expense' || typ === 'income') && !!d.reimbursable,
+        _seq: nextSeq(), created_at: new Date().toISOString()
       };
       return write([{ op: 'put', store: 'transactions', value: row }]).then(function () { return row; });
     });
@@ -469,11 +472,13 @@
 
       var row = Object.assign({}, cur, {
         date: date, accountId: aid, toAccountId: toAid,
-        category: category, amount: amount, note: note
+        category: category, amount: amount, note: note,
+        reimbursable: (typ === 'expense' || typ === 'income') && !!d.reimbursable
       });
       return write([{ op: 'put', store: 'transactions', value: row }]).then(function () {
         return { id: tid, date: date, type: typ, accountId: aid,
-                 toAccountId: toAid, category: category, amount: amount, note: note };
+                 toAccountId: toAid, category: category, amount: amount, note: note,
+                 reimbursable: row.reimbursable };
       });
     });
   }
@@ -612,7 +617,7 @@
       var row = {
         ruleId: rid, effectiveFrom: eff, amount: amount, accountId: aid,
         category: category, weekdaysOnly: weekdays, monthlyDay: monthlyDay,
-        enabled: enabled
+        enabled: enabled, reimbursable: !!d.reimbursable
       };
       if (same) row.id = same.id;
       return write([{ op: 'put', store: 'fixed', value: row }]).then(function () {
@@ -728,7 +733,9 @@
         op: 'put', store: 'transactions', value: {
           id: clip(t.id, 40) || newId(), date: date, type: t.type, accountId: aid,
           toAccountId: toAid, category: clip(t.category, 20), amount: amt,
-          note: clip(t.note, 60), _seq: nextSeq(), created_at: new Date().toISOString()
+          note: clip(t.note, 60),
+          reimbursable: (t.type === 'expense' || t.type === 'income') && !!t.reimbursable,
+          _seq: nextSeq(), created_at: new Date().toISOString()
         }
       });
     });
@@ -766,7 +773,7 @@
         op: 'put', store: 'fixed', value: {
           ruleId: rid, effectiveFrom: eff, amount: amt, accountId: aid, category: cat,
           weekdaysOnly: v.weekdaysOnly === true, monthlyDay: md,
-          enabled: v.enabled !== false
+          enabled: v.enabled !== false, reimbursable: !!v.reimbursable
         }
       });
     });
