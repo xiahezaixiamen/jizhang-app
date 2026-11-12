@@ -420,6 +420,7 @@ modalOK = onOK;
 调用方若要「关闭后回到原弹窗」，在 openModal 之后再设置 modalReturn。 */
 modalReturn = null;
 delete mask.dataset.day;
+delete mask.dataset.month;
 var okBtn = document.getElementById('modal-ok');
 okBtn.textContent = okLabel || '保存';
 okBtn.className = 'btn ' + (okClass || 'btn-primary');
@@ -432,6 +433,7 @@ function closeModal(){
 var mask = document.getElementById('modal-mask');
 mask.classList.remove('show');
 delete mask.dataset.day;
+delete mask.dataset.month;
 modalOK = null;
 /* 编辑弹窗由单日弹窗点进来：保存 / 取消 / Esc / 点遮罩都会回到当日弹窗，
 且只用一次，避免第二次关闭时又弹回来。 */
@@ -527,9 +529,9 @@ dca: dca, fixed: fixed, autoTx: autoTx, skips: skips};
 async function reload(){
 db = normalize(await api('/api/data'));
 renderAll();
-/* 单日弹窗里的记录被编辑/删除/撤销后，数据变了但弹窗 DOM 还是旧的。
+/* 单日 / 整月明细弹窗里的记录被编辑/删除/撤销后，数据变了但弹窗 DOM 还是旧的。
 就地刷新一次弹窗内容（不重开弹窗，撤销提示才不会被 hideUndo 清掉）。 */
-if (typeof ledRefreshDay === 'function') ledRefreshDay();
+if (typeof ledRefreshPopup === 'function') ledRefreshPopup();
 }
 ;
 /* ================= 渲染：资产总览 ================= */
@@ -1193,8 +1195,9 @@ fillAccountSelects();
 切页签、记一笔不会把已展开的页数收回去；只有改筛选条件才回到第一批。 */
 var LED_PAGE = 50, ledShown = LED_PAGE, ledMonth = '';
 /* 日历视图：ledCalMonth 跟随顶部月份选择器；ledSelDate 只表示日历高亮的那天。
-点格子改为弹窗展示当天全部明细，不再把明细内联铺到日历下方；
-ledViewAll 为 true 时下方列表才平铺全月（筛选命中）记录。 */
+点格子与点月份名都走弹窗（单日 / 整月），不把明细内联铺到日历下方；
+ledViewAll 为 true 时下方列表才平铺记录——现在只由筛选触发（命中可能跨天，
+要能一屏看全），不再有「整月铺开」的入口。 */
 var ledCalMonth = '', ledSelDate = '', ledCalInit = false, ledViewAll = false;
 /* 日历是否需要重画：只有数据、月份、选中日期变了才需要 */
 var ledCalDirty = true;
@@ -1495,14 +1498,35 @@ var mask = document.getElementById('modal-mask');
 if (!mask || !mask.classList.contains('show')) return '';
 return mask.dataset.day || '';
 }
+/* 当前打开的是哪种明细弹窗：day=单日、month=整月。标记挂在遮罩上，
+openModal/closeModal 会一起清掉，避免关掉后还残留旧口径。 */
+function ledMonthOf(){
+var mask = document.getElementById('modal-mask');
+if (!mask || !mask.classList.contains('show')) return '';
+return mask.dataset.month || '';
+}
+function ledPopupCtx(){
+var iso = ledDayIsoOf();
+if (iso) return {kind: 'day', key: iso};
+var m = ledMonthOf();
+if (m) return {kind: 'month', key: m};
+return null;
+}
 /* 数据变更后只换弹窗内容：不调 openModal，撤销 toast 不会被 hideUndo 清掉，
 弹窗也不会闪一下。由 reload() 在每次数据刷新后调用。 */
-function ledRefreshDay(){
+function ledRefreshPopup(){
 var iso = ledDayIsoOf();
-if (!iso) return;
+if (iso){
 var x = ledDayBody(iso);
 document.getElementById('modal-title').textContent = x.title;
 document.getElementById('modal-body').innerHTML = x.body;
+return;
+}
+var m = ledMonthOf();
+if (!m) return;
+var y = ledMonthBody(m);
+document.getElementById('modal-title').textContent = y.title;
+document.getElementById('modal-body').innerHTML = y.body;
 }
 function ledOpenDay(iso){
 var x = ledDayBody(iso);
@@ -1511,15 +1535,70 @@ openModal(x.title, x.body, function(){ return true; }, '关闭', true);
 var mask = document.getElementById('modal-mask');
 if (mask) mask.dataset.day = iso;
 }
-/* 弹窗内点行编辑：编辑弹窗会覆盖当日弹窗，保存/取消/Esc/点遮罩后回到这一天。
+/* 整月弹窗：和单日弹窗同一套交互（点记录可编辑、点「删」删除）。
+日历上的月份名与「本月明细」按钮都走这里 —— 整月流水不再铺到日历下方。 */
+function ledMonthRows(month){
+return allTx().filter(function(t){ return String(t.date).slice(0, 7) === month; })
+.sort(function(x, y){ return x.date < y.date ? 1 : (x.date > y.date ? -1 : 0); });
+}
+function ledMonthBody(month){
+var rows = ledMonthRows(month), tot = {expense: 0, income: 0, transfer: 0};
+var daySum = {}, lines = '', lastDate = '';
+rows.forEach(function(t){
+var d = daySum[t.date] || (daySum[t.date] = {expense: 0, income: 0});
+if (t.type === 'expense'){ tot.expense += t.amount; d.expense += t.amount; }
+else if (t.type === 'income'){ tot.income += t.amount; d.income += t.amount; }
+else tot.transfer++;
+if (t.date !== lastDate){
+lastDate = t.date;
+var ps = [];
+if (d.expense) ps.push('支出 −' + money(d.expense));
+if (d.income) ps.push('收入 +' + money(d.income));
+lines += '<div class="led-day"><span>' + esc(ledDateCn(t.date) + ' ' + ledWeekday(t.date)) +
+'</span><span>' + ps.join(' · ') + '</span></div>';
+}
+lines += ledRowHtml(t);
+});
+var net = tot.income - tot.expense, tone = ledNetTone(net);
+var netTxt = privacyOn ? PRIVACY_MASK : ((net >= 0 ? '+' : '−') + num(Math.abs(net)));
+var body = rows.length
+? '<div class="muted" style="font-size:11.5px;margin:0 0 6px">' +
+'点某条记录可编辑，点「删」删除这一笔。</div>' +
+'<div class="day-lines">' + lines + '</div>'
+: '<div class="day-empty">这个月还没有记录。</div>';
+body += '<div class="day-sum">' +
+'<span><span class="lbl">支出</span> −' + money(tot.expense) + '</span>' +
+'<span><span class="lbl">收入</span> +' + money(tot.income) + '</span>' +
+'<span><span class="lbl">合计</span> <b class="net ' +
+(tone === 'in' ? 'pos' : (tone === 'out' ? 'neg' : '')) + '">' + netTxt + '</b></span>' +
+(tot.transfer ? '<span class="lbl">另有转账 ' + tot.transfer + ' 笔，不计入合计</span>' : '') +
+'</div>';
+return {
+title: (+month.slice(0, 4)) + '年 ' + (+month.slice(5, 7)) + '月 · 本月明细',
+body: body
+};
+}
+function ledOpenMonth(month){
+var m = month || ledCalMonth || thisMonth();
+var x = ledMonthBody(m);
+openModal(x.title, x.body, function(){ return true; }, '关闭', true);
+var mask = document.getElementById('modal-mask');
+if (mask) mask.dataset.month = m;
+}
+/* 弹窗内点行编辑：编辑弹窗会覆盖当前明细弹窗，保存/取消/Esc/点遮罩后回到原来那一层。
 返回动作必须在 openModal 之后设置（openModal 会清掉它）。 */
-function ledDayEdit(id){
-var iso = ledDayIsoOf();
+function ledPopupEdit(id){
+var ctx = ledPopupCtx();
+if (!ctx) return;
 var exists = db.transactions.some(function(t){ return t.id === id; });
 if (!exists) return;
 openTxModal(id);
-if (iso) modalReturn = function(){ ledOpenDay(iso); };
+modalReturn = function(){
+if (ctx.kind === 'day') ledOpenDay(ctx.key);
+else ledOpenMonth(ctx.key);
+};
 }
+function ledDayEdit(id){ ledPopupEdit(id); }
 /* 列表独立渲染：改筛选条件或切换日期时只重画列表与日历，不重建指标卡和两张图表 */
 function renderLedList(){
 var monthEl = ledEl('led-month');
@@ -1538,8 +1617,8 @@ else if (t.type === 'income') d.income += t.amount;
 /* 日历配色与单日弹窗都不看筛选；分组头的当日收支仍按筛选命中显示，保持台账口径。
 只画必须的那些次：筛选命中变化时日历内容一个字都不会变。 */
 ledDrawCalendar(ledCalMonth || month);
-/* 点日期只弹窗，不再把当天明细内联铺到日历下方。
-只有「查看全月」才在下方平铺命中记录（分页 + 按日分组）。 */
+/* 点日期、点月份都只弹窗，不在日历下方铺明细。
+只有筛选命中（ledViewAll）才在下方平铺记录（分页 + 按日分组）。 */
 var viewRows = ledViewAll ? rows : [];
 var shown = viewRows.slice(0, ledShown);
 /* 结果跨年时才给日期补上年份：两年前的 11-10 和今年的不能长得一样；
@@ -1564,7 +1643,7 @@ if (box){
 var emptyTxt = '';
 if (!shown.length){
 if (!ledViewAll)
-emptyTxt = '点日历上的某个日期，弹窗查看当天全部收支明细与合计。';
+emptyTxt = '点日历上的某一天看当天明细，点月份名或「本月明细」弹窗查看整月。';
 else if (ledHasFilter(f))
 emptyTxt = '没有符合条件的记录，放宽条件或点「清空筛选」试试。';
 else
@@ -1576,12 +1655,12 @@ box.innerHTML = (shown.length ? html : '<div class="empty">' + emptyTxt + '</div
 (viewRows.length - ledShown) + ' 条）</button></div>'
 : '');
 }
-/* 当前查看范围：默认引导看弹窗，查看全月则标明平铺 */
+/* 当前查看范围：默认引导看弹窗，筛选平铺结果则标明范围 */
 var dt = ledEl('led-day-title');
 if (dt){
 dt.innerHTML = ledViewAll
 ? '<strong>全月明细</strong><span>按日期分组 · 共 ' + viewRows.length + ' 笔</span>'
-: '<strong>按日查看</strong><span>点日历上的日期查看当天明细</span>';
+: '<strong>按日查看</strong><span>点日期看当天，点月份看整月</span>';
 }
 /* 命中摘要：让人明确知道现在看到的是筛选后的结果、还是全部 */
 var hit = ledEl('led-hit');
@@ -1611,11 +1690,8 @@ if (ev && ev.target && ev.target.id === 'led-q' && scope && q &&
 String(q.value || '').trim() && scope.value !== 'all'){
 scope.value = 'all';
 }
-/* 筛选命中往往跨天，自动回到「查看全月」，保留原有的一屏看全部命中 */
-ledSelDate = '';
-ledViewAll = true;
-ledShown = LED_PAGE;
-renderLedList();
+/* 筛选命中往往跨天，自动平铺命中结果（筛选是唯一还会把记录铺在日历下方的地方） */
+ledShowAll();
 }
 /* 筛选调度：文本框逐字输入加 160ms 防抖（每敲一个键都全量过滤 + 重排列表会发涩），
 下拉等离散选择仍即点即生效。清空筛选要取消待执行的回调，
@@ -1657,9 +1733,11 @@ ledCalDirty = true;
 ledDrawCalendar(ledCalMonth || thisMonth());
 ledOpenDay(iso);
 }
+/* 平铺命中记录（筛选专用）。整月明细不走这里，改由 ledOpenMonth() 弹窗。
+取消选中态才需要重画日历高亮；本来就没选中时筛选不动日历（降噪也降开销）。 */
 function ledShowAll(){
+if (ledSelDate) ledCalDirty = true; /* 要去掉那格 is-sel */
 ledSelDate = '';
-ledCalDirty = true; /* 取消日期选中态，日历要跟着去掉 is-sel */
 ledViewAll = true;
 ledShown = LED_PAGE;
 renderLedList();
@@ -3244,7 +3322,8 @@ return delAutoTx(id, el ? el.getAttribute('data-date') : '');
 'led-more': ledMore,
 'led-clear': ledClearFilters,
 'led-day': function(id, el){ ledSelectDate(el ? el.getAttribute('data-date') : ''); },
-'led-all': ledShowAll,
+'led-all': function(){ ledOpenMonth(); },
+'led-month': function(){ ledOpenMonth(); },
 'led-today': ledGoToday,
 'led-cal-prev': function(){ ledShiftMonth(-1); },
 'led-cal-next': function(){ ledShiftMonth(1); }
@@ -3254,8 +3333,8 @@ var act = el.getAttribute('data-act');
 var fn = ACTIONS[act];
 if (!fn) return;
 var id = el.getAttribute('data-id');
-if (act === 'tx-edit' && typeof ledDayIsoOf === 'function' && ledDayIsoOf()){
-ledDayEdit(id);
+if (act === 'tx-edit' && typeof ledPopupCtx === 'function' && ledPopupCtx()){
+ledPopupEdit(id);
 return;
 }
 var r = fn(id, el);

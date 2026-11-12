@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <title>本地个人财务管理</title>
-<link rel="stylesheet" href="app.c0d638fb6e.css">
+<link rel="stylesheet" href="app.56a41230ae.css">
 </head>
 <body>
 <header>
@@ -183,11 +183,12 @@
     <div class="led-cal" id="led-cal">
       <div class="led-cal-head">
         <button class="btn btn-sm cal-arrow" type="button" data-act="led-cal-prev" aria-label="上一个月">‹</button>
-        <span class="led-cal-title" id="led-cal-title"></span>
+        <span class="led-cal-title" id="led-cal-title" data-act="led-month"
+          role="button" tabindex="0" title="点这里看本月明细"></span>
         <button class="btn btn-sm cal-arrow" type="button" data-act="led-cal-next" aria-label="下一个月">›</button>
         <span class="grow"></span>
         <button class="btn btn-sm" type="button" data-act="led-today">今天</button>
-        <button class="btn btn-sm" type="button" data-act="led-all">查看全月</button>
+        <button class="btn btn-sm" type="button" data-act="led-all">本月明细</button>
       </div>
       <div class="led-cal-week"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
       <div class="led-cal-grid" id="led-cal-grid"></div>
@@ -364,14 +365,14 @@
   </div>
 </div>
 
-<script src="localdb.js?v=41"></script>
+<script src="localdb.js?v=42"></script>
 <script src="lib/chart.umd.min.js"></script>
 <script>
 if (typeof Chart === 'undefined') {
   document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"><\/script>');
 }
 </script>
-<script src="app.c982943036.js"></script><script>
+<script src="app.8793c97d83.js"></script><script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('sw.js').catch(function () {});
