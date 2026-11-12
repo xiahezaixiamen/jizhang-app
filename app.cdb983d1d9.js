@@ -2601,9 +2601,7 @@ var line2 = '<div class="muted" style="margin-top:7px">累计 ' + s.count + ' �
 var warn = invalid
 ? '<div class="muted" style="margin-top:6px;color:var(--red)">配置的账户已被删除，期间不产生扣款，请点「设置」重新指定。</div>'
 : '';
-var note = '<div class="muted" style="margin-top:6px;font-size:11.5px;opacity:.85">' +
-'按自然日结算，与脚本是否运行无关：未打开期间的应扣工作日会在下次打开时一次性补齐；每天至多一笔，不重复扣款。修改金额只从今天起生效。</div>';
-box.innerHTML = line1 + line2 + warn + note;
+box.innerHTML = line1 + line2 + warn;
 }
 function openDcaModal(){
 var daily = accountsByRole('daily');
