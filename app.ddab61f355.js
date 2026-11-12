@@ -409,6 +409,12 @@ alertKind() 里的正则只作为兜底，留给「请填写金额」这类中�
 window.alert = function(msg){ showAlert(msg); };
 window.alert.error = function(msg){ showAlert(msg, {kind:'error'}); };
 window.alert.success = function(msg){ showAlert(msg, {kind:'success'}); };
+/* 首屏占位（手机版 build 时注入）：数据与界面都画完后移除。
+桌面版没有这个元素，这里判空直接跳过，不影响任何逻辑。 */
+function hideSplash(){
+var el = document.getElementById('boot-splash');
+if (el && el.parentNode) el.parentNode.removeChild(el);
+}
 /* ================= 表单弹窗 ================= */
 var modalOK = null, modalReturn = null;
 function openModal(title, bodyHTML, onOK, okLabel, hideCancel, okClass){
@@ -2118,6 +2124,7 @@ updateReimbBar();
 fillAccountSelects();
 tabById(activeTab).render();
 restoreViewState(viewState);
+hideSplash();
 }
 function renderCurrent(){
 stopRoll();
@@ -3409,6 +3416,7 @@ Chart.defaults.color = 'rgba(60,60,67,.6)';
 Chart.defaults.font.size = 11;
 }
 if (location.protocol === 'file:'){
+hideSplash();
 errBox.style.display = '';
 errBox.textContent = '请通过本地服务打开：双击 D:\\记账\\启动记账.bat，浏览器会自动打开 http://127.0.0.1:8765';
 return;
@@ -3416,6 +3424,7 @@ return;
 try {
 await reload();
 } catch(e){
+hideSplash();
 errBox.style.display = '';
 errBox.textContent = '数据未能加载：' + e.message + '（本地数据加载失败，请确认浏览器未处于无痕模式，或换用 Safari）';
 return;
