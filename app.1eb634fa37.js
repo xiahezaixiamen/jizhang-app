@@ -1001,14 +1001,79 @@ rollSpan(Math.abs(delta), num(Math.abs(delta)), rollFmtNum))
 var dailySum = sumRole('daily'), wealthSum = sumRole('wealth'), holdSum = sumRole('hold');
 var dailyN = accountsByRole('daily').length,
 wealthN = accountsByRole('wealth').length, holdN = accountsByRole('hold').length;
+/* ---- 首屏：一个主数字（本月可花）+ 一张支出构成环图 ---- */
+var heroVal = document.getElementById('ov-hero-val');
+if (heroVal){
+heroVal.className = 'ov-hero-val' + (dailySum < -0.005 ? ' red' : '');
+heroVal.innerHTML = rollSpan(dailySum, moneyShort(dailySum));
+}
+var heroFoot = document.getElementById('ov-hero-foot');
+if (heroFoot) heroFoot.textContent = dailyN
+? '活期 + 银行卡余额 · ' + dailyN + ' 个账户'
+: '还没有日常可用账户';
+var expEl = document.getElementById('ov-hero-exp');
+if (expEl) expEl.innerHTML = rollSpan(m.expense, moneyShort(m.expense));
+var balEl = document.getElementById('ov-hero-bal');
+if (balEl){
+var pos = m.balance > 0.005, neg = m.balance < -0.005;
+balEl.className = neg ? 'red' : (pos ? 'green' : '');
+balEl.innerHTML = (neg ? '−' : (pos ? '+' : '')) +
+rollSpan(Math.abs(m.balance), moneyShort(Math.abs(m.balance)));
+}
+/* 支出构成：与明细页同一个 monthStats.byCat 口径（含自动支出、排除报销） */
+var cats = Object.keys(m.byCat || {}).sort(function(a,b){ return m.byCat[b] - m.byCat[a]; });
+var catTotal = cats.reduce(function(s,c){ return s + m.byCat[c]; }, 0);
+var catTotalEl = document.getElementById('ov-cat-total');
+if (catTotalEl) catTotalEl.textContent = privacyOn ? PRIVACY_MASK : moneyShort(catTotal);
+var catNote = document.getElementById('ov-cat-note');
+if (catNote) catNote.textContent = (!cats.length || catTotal <= 0) ? ''
+: (privacyOn ? PRIVACY_MASK
+: cats.slice(0,2).map(function(c){
+return c + ' ' + Math.round(m.byCat[c]/catTotal*100) + '%';
+}).join(' · '));
+if (cats.length && catTotal > 0){
+draw('c-ov-cat', {
+type: 'doughnut',
+data: {
+labels: cats,
+datasets: [{
+data: cats.map(function(c){ return Math.round(m.byCat[c]*100)/100; }),
+backgroundColor: cats.map(function(c){ return CAT_COLORS[EX_CATS.indexOf(c)] || '#8e8e93'; }),
+borderWidth: 0
+}]
+},
+options: {responsive:true, maintainAspectRatio:false, cutout:'68%',
+plugins:{legend:{display:false},
+tooltip:{callbacks:{label:function(c){
+return c.label + '：' + money(c.parsed) +
+(catTotal > 0 ? ' · ' + Math.round(c.parsed/catTotal*100) + '%' : '');
+}}}}}
+});
+} else {
+draw('c-ov-cat', {type:'doughnut',
+data:{labels:['本月还没有支出'], datasets:[{data:[1], backgroundColor:['#e5e7eb'], borderWidth:0}]},
+options:{responsive:true, maintainAspectRatio:false, cutout:'68%',
+plugins:{legend:{display:false}, tooltip:{enabled:false}}}});
+}
 document.getElementById('ov-metrics').innerHTML =
 metricCard('净资产', moneyShort(n.net), deltaText, null, rollIndex(n.net)) +
-metricCard('日常可用', moneyShort(dailySum), dailyN + ' 个 · 两类独立核算', null, rollIndex(dailySum)) +
 metricCard('银行理财', moneyShort(wealthSum), wealthN + ' 个 · 挂卡不计入可用余额', null, rollIndex(wealthSum)) +
 metricCard('长期持有', moneyShort(holdSum), holdN + ' 个 · 不参与日常消费', null, rollIndex(holdSum)) +
-metricCard('本月结余', moneyShort(m.balance),
-'收入 ' + rollSpan(m.income, moneyShort(m.income)) + ' · 支出 ' + rollSpan(m.expense, moneyShort(m.expense)),
-null, rollIndex(m.balance));
+metricCard('本月收入', moneyShort(m.income),
+'工资 / 奖金 / 报销等', null, rollIndex(m.income));
+/* 折叠区里的图表在 display:none 下建实例拿不到尺寸，展开后必须重新量一次 */
+var fold = document.getElementById('ov-fold');
+if (fold && !fold.dataset.bound){
+fold.dataset.bound = '1';
+fold.addEventListener('toggle', function(){
+if (!fold.open) return;
+requestAnimationFrame(function(){
+['c-ov-comp','c-ov-net','c-ov-cat'].forEach(function(id){
+if (charts[id] && charts[id].resize) charts[id].resize();
+});
+});
+});
+}
 var help = document.getElementById('ov-help');
 if (!db.accounts.length){
 help.style.display = '';
@@ -2480,16 +2545,16 @@ var body = '<div class="field"><label>日期</label>' +
 '<input type="date" id="et-date" value="' + t.date + '"></div>';
 if (t.type === 'transfer'){
 body += '<div class="field"><label>金额 (¥)</label>' +
-'<input type="number" id="et-amount" step="0.01" min="0.01" value="' + amtVal + '" placeholder="' + ph + '"></div>' +
+'<input type="number" id="et-amount" step="0.01" min="0.01" inputmode="decimal" value="' + amtVal + '" placeholder="' + ph + '"></div>' +
 '<div class="field"><label>从</label><select id="et-from">' + acctOptions(t.accountId) + '</select></div>' +
 '<div class="field"><label>转到</label><select id="et-to">' + acctOptions(t.toAccountId) + '</select></div>';
 } else if (t.type === 'adjust'){
 body += '<div class="field"><label>调整额 (¥，可负)</label>' +
-'<input type="number" id="et-amount" step="0.01" value="' + amtVal + '"></div>' +
+'<input type="number" id="et-amount" step="0.01" inputmode="decimal" value="' + amtVal + '"></div>' +
 '<div class="field"><label>账户</label><select id="et-from">' + acctOptions(t.accountId) + '</select></div>';
 } else {
 body += '<div class="field"><label>金额 (¥)</label>' +
-'<input type="number" id="et-amount" step="0.01" min="0.01" value="' + amtVal + '" placeholder="' + ph + '"></div>' +
+'<input type="number" id="et-amount" step="0.01" min="0.01" inputmode="decimal" value="' + amtVal + '" placeholder="' + ph + '"></div>' +
 '<div class="field"><label>分类</label><select id="et-cat">' + catOptions(t.type, t.category) + '</select></div>' +
 '<div class="field"><label>账户</label><select id="et-from">' + acctOptions(t.accountId) + '</select></div>' +
 '<div class="field"><label style="flex-direction:row;align-items:center;gap:7px;cursor:pointer">' +
@@ -2497,7 +2562,7 @@ body += '<div class="field"><label>金额 (¥)</label>' +
 (t.reimbursable ? 'checked' : '') + '> 公司报销（总开关开启时不计入统计）</label></div>';
 }
 body += '<div class="field"><label>备注 (可选)</label>' +
-'<input id="et-note" maxlength="60" value="' + esc(t.note) + '"></div>' +
+'<input id="et-note" type="text" inputmode="text" maxlength="60" value="' + esc(t.note) + '"></div>' +
 '<span class="muted" style="font-size:11.5px">改完余额立即重算；记录类型不可更改。</span>';
 var titles = {expense: '编辑支出', income: '编辑收入',
 transfer: '编辑转账', adjust: '编辑余额调整'};
@@ -2603,7 +2668,7 @@ return '<option value="' + a.id + '"' + (a.id === sel ? ' selected' : '') + '>' 
 }
 var body =
 '<div class="field"><label>每天扣款金额 (¥)</label>' +
-'<input type="number" id="dca-amt" step="0.01" min="0" value="' +
+'<input type="number" id="dca-amt" step="0.01" min="0" inputmode="decimal" value="' +
 (privacyOn ? '' : (c ? c.amount : 100)) + '"' +
 (privacyOn ? ' placeholder="请输入每日金额（当前金额已隐藏）"' : '') + '></div>' +
 '<div class="field"><label>扣款账户 · 日常可用</label>' +
@@ -2827,7 +2892,7 @@ h.textContent = monthly
 }
 var body =
 '<div class="field"><label>每次扣款金额 (¥)</label>' +
-'<input type="number" id="fx-amt" step="0.01" min="0" value="' +
+'<input type="number" id="fx-amt" step="0.01" min="0" inputmode="decimal" value="' +
 (privacyOn ? '' : (c ? c.amount : 10)) + '"' +
 (privacyOn ? ' placeholder="请输入每次扣款金额（当前金额已隐藏）"' : '') + '></div>' +
 '<div class="field"><label>分类</label><select id="fx-cat">' + opts(cat) + '</select></div>' +
@@ -2935,7 +3000,7 @@ openModal('添加账户',
 '<div class="field"><label>类型</label>' +
 '<select id="ac-type">' + typeOptions('deposit') + '</select></div>' +
 '<div class="field"><label>当前余额 (¥)</label>' +
-'<input type="number" id="ac-balance" step="0.01" value="0" placeholder="0.00">' +
+'<input type="number" id="ac-balance" step="0.01" inputmode="decimal" value="0" placeholder="0.00">' +
 '<span class="muted" style="font-size:11.5px">填今天的真实余额，作为建账起点。负债填正数（欠多少）。日常类的账户会作为记账时的默认扣款来源。</span></div>' +
 '<div class="field"><label>余额日期</label>' +
 '<input type="date" id="ac-date" value="' + today() + '"></div>' +
@@ -2963,7 +3028,7 @@ openModal('编辑账户 · ' + a.name,
 '<div class="field"><label>类型</label>' +
 '<select id="ed-type">' + typeOptions(a.type) + '</select></div>' +
 '<div class="field"><label>建账余额 (¥)</label>' +
-'<input type="number" id="ed-balance" step="0.01" value="' +
+'<input type="number" id="ed-balance" step="0.01" inputmode="decimal" value="' +
 (privacyOn ? '' : a.initial_balance) + '"' +
 (privacyOn ? ' placeholder="留空表示不修改（当前金额已隐藏）"' : '') + '></div>' +
 '<div class="field"><label>余额日期</label>' +
@@ -3001,7 +3066,7 @@ openModal('更新余额 · ' + a.name,
 '<div class="field"><label>系统当前余额</label>' +
 '<div style="font-size:20px;font-weight:600;font-variant-numeric:tabular-nums">' + money(bal) + '</div></div>' +
 '<div class="field"><label>实际余额 / 最新市值 (¥)</label>' +
-'<input type="number" id="rv-value" step="0.01" value="' +
+'<input type="number" id="rv-value" step="0.01" inputmode="decimal" value="' +
 (privacyOn ? '' : bal.toFixed(2)) + '"' +
 (privacyOn ? ' placeholder="请输入实际金额（当前金额已隐藏）"' : '') + '></div>' +
 '<div class="field"><label>日期</label><input type="date" id="rv-date" max="' + today() + '" value="' + today() + '"></div>' +
@@ -3032,7 +3097,7 @@ var fromName = accountById(fromId) ? accountById(fromId).name : '';
 openModal('账户间转账',
 '<div class="field"><label>从</label><div style="font-weight:600">' + esc(fromName) + '</div></div>' +
 '<div class="field"><label>转到</label><select id="tr-to">' + opts + '</select></div>' +
-'<div class="field"><label>金额 (¥)</label><input type="number" id="tr-amt" step="0.01" min="0.01" required></div>' +
+'<div class="field"><label>金额 (¥)</label><input type="number" id="tr-amt" step="0.01" min="0.01" inputmode="decimal" required></div>' +
 '<div class="field"><label>日期</label><input type="date" id="tr-date" value="' + today() + '"></div>' +
 '<div class="field"><label>备注 (可选)</label><input id="tr-note" maxlength="60"></div>' +
 '<span class="muted" style="font-size:11.5px">转账不算收入也不算支出，只改变两个账户的余额。</span>',
