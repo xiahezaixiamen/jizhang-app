@@ -1999,25 +1999,6 @@ title:{display:true, text:'所选区间内还没有足够的数据点', color:'r
 var inv = db.accounts.filter(function(a){ return kindOf(a) === 'invest'; });
 var balNow = currentBalances();
 var perf = inv.map(function(a){ return accountPerf(a, balNow[a.id] || 0); });
-if (perf.length){
-draw('c-ana-rate', {
-type: 'bar',
-data: {
-labels: perf.map(function(p){ return p.name; }),
-datasets: [{
-label:'盈亏金额', data: perf.map(function(p){ return Math.round(p.gain*100)/100; }),
-backgroundColor: perf.map(function(p){ return p.gain >= 0 ? '#ff3b30' : '#34c759'; }),
-borderRadius: 4, maxBarThickness: 40
-}]
-},
-options: baseOpts({indexAxis:'y'})
-});
-} else {
-draw('c-ana-rate', {type:'bar', data:{labels:[], datasets:[]},
-options: Object.assign(baseOpts({indexAxis:'y'}), {scales:{x:{display:false}, y:{display:false}},
-plugins:{legend:{display:false}, tooltip:{enabled:false},
-title:{display:true, text:'还没有股票 / 基金类账户', color:'rgba(60,60,67,.45)', font:{size:12, weight:'400'}}}})});
-}
 var rows = perf.map(function(p){
 var a = accountById(p.id);
 var rate = p.rate * 100;
