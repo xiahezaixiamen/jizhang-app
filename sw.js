@@ -1,7 +1,7 @@
 /* 离线缓存：让「添加到主屏幕」之后断网也能打开。
    数据本身在 IndexedDB，与本缓存无关；这里只缓存界面外壳。
    改动界面后把 CACHE 版本号 +1，手机下次联网打开时会自动换新。 */
-const CACHE = 'jizhang-v52';
+const CACHE = 'jizhang-v53';
 /* 版本号同时用于给 localdb.js 加查询串：HTML 里的引用一变，
    旧 Service Worker 的缓存必然 miss，从而强制回源拿新代码。
    必须与 build_mobile.py::sw_ver() 提取的纯数字一致（?v=29），
@@ -24,6 +24,10 @@ const STATIC_ASSETS = [
   './icon-512.png',
   './manifest.webmanifest'
 ];
+
+/* 这些文件名不带内容哈希：换了图标或 manifest，URL 却没变，
+   必须每次换代强制重取，否则主屏幕会一直显示旧图标。 */
+const FRESH_ASSETS = ['icon-180.png', 'icon-512.png', 'manifest.webmanifest'];
 
 function abs(p){ return new URL(p, self.registration.scope).href; }
 
@@ -71,6 +75,10 @@ self.addEventListener('install', function (e) {
            旧版本缓存里有的（升级场景）直接搬过来，不再走网络。 */
         return Promise.all(list.map(function (p) {
           var url = abs(p);
+          var name = p.replace(/^\.\//, '');
+          if (FRESH_ASSETS.indexOf(name) >= 0) {
+            return c.add(url).catch(function () { return null; });
+          }
           return c.match(url).then(function (hit) {
             if (hit) return null;
             return pickFromOld(url).then(function (old) {
