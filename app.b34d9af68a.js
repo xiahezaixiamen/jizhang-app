@@ -2193,6 +2193,9 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'65', date:'2026-11-18', items:[
+'更新后不再跳回首页：刷新时先淡出，回来还停在原来的页签和位置'
+]},
 {v:'64', date:'2026-11-18', items:[
 '优化缓存层的注册方式：同一版本内打开不再重复下载，只有点「检查更新」才动缓存'
 ]},
@@ -2287,7 +2290,13 @@ navigator.serviceWorker.addEventListener('controllerchange', function(){
 if (reloading) return;
 reloading = true;
 if (btn) btn.textContent = '正在更新…';
-location.reload();
+/* 记下当前页签与滚动位置，刷新后原样还原；先淡出 160ms，
+避免旧页面「啪」地变成白屏再跳出新内容。 */
+try {
+sessionStorage.setItem('jzUpd', JSON.stringify({tab: activeTab, y: window.scrollY}));
+} catch(e){}
+document.documentElement.classList.add('jz-fadeout');
+setTimeout(function(){ location.reload(); }, 160);
 }, {once:true});
 fetch('./?probe=' + Date.now(), {cache:'no-store'}).then(function(r){
 return r.text();
@@ -2371,6 +2380,23 @@ fillAccountSelects();
 tabById(activeTab).render();
 restoreViewState(viewState);
 hideSplash();
+restoreAfterUpdate();
+}
+/* 「检查更新」刷新回来后：回到原来那一页和滚动位置，页面就不会从数据页跳回概览。 */
+function restoreAfterUpdate(){
+var raw = null;
+try { raw = sessionStorage.getItem('jzUpd'); } catch(e){}
+if (!raw) return;
+try { sessionStorage.removeItem('jzUpd'); } catch(e){}
+try {
+var st = JSON.parse(raw) || {};
+if (st.tab && st.tab !== activeTab){
+var btn = document.querySelector('#nav button[data-tab="' + st.tab + '"]');
+if (btn) btn.click();
+}
+window.scrollTo(0, st.y || 0);
+} catch(e){}
+document.documentElement.classList.remove('jz-fadeout');
 }
 function renderCurrent(){
 stopRoll();
