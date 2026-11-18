@@ -2193,6 +2193,9 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'62', date:'2026-11-18', items:[
+'「检查更新」在旧缓存卡住时会强制换一条通道重新拉取，不再干等十分钟'
+]},
 {v:'61', date:'2026-11-18', items:[
 '「自定义周期花销」的红色柱子改成横向渐隐 + 全圆角，分类少时卡片高度也收紧了'
 ]},
@@ -2291,15 +2294,21 @@ alert('已是最新版本（v' + cur + '）。');
 return null;
 }
 if (btn) btn.textContent = '更新到 v' + (srv || '?') + '…';
-return navigator.serviceWorker.getRegistration().then(function(reg){
-return reg ? reg.update() : null;
-}).then(function(){
+/* 旧注册（updateViaCache 还是默认值）会把 sw.js 按 HTTP 缓存压十分钟，
+reg.update() 拿到的仍是旧脚本，永远发现不了新版。
+换一个带时间戳的脚本地址重新注册：浏览器会当作新脚本去下载，
+绕开旧缓存策略，装好后照样 skipWaiting + claim，触发 controllerchange。 */
+return navigator.serviceWorker
+.register('sw.js?f=' + Date.now(), {updateViaCache:'none'})
+.then(function(reg){ return reg.update(); })
+.catch(function(){ return null; })
+.then(function(){
 setTimeout(function(){
 if (reloading) return;
 restore();
-alert('服务器上已经是 v' + (srv || '?') + '，但这台设备还连着旧缓存。'
-+ '过几分钟再点一次「检查更新」就能拿到。');
-}, 5000);
+alert('服务器上已经是 v' + (srv || '?') + '，但这台设备还没切过来。'
++ '请关闭应用再打开一次；打开后就会是新版了。');
+}, 8000);
 });
 }).catch(function(){
 restore();
