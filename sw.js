@@ -1,7 +1,7 @@
 /* 离线缓存：让「添加到主屏幕」之后断网也能打开。
    数据本身在 IndexedDB，与本缓存无关；这里只缓存界面外壳。
    改动界面后把 CACHE 版本号 +1，手机下次联网打开时会自动换新。 */
-const CACHE = 'jizhang-v67';
+const CACHE = 'jizhang-v68';
 /* 版本号同时用于给 localdb.js 加查询串：HTML 里的引用一变，
    旧 Service Worker 的缓存必然 miss，从而强制回源拿新代码。
    必须与 build_mobile.py::sw_ver() 提取的纯数字一致（?v=29），
@@ -20,14 +20,14 @@ const NAV_KEY = './';
 /* 跟着外壳一起预缓存的静态资源：体积大或每次都要用。 */
 const STATIC_ASSETS = [
   './lib/chart.umd.min.js',
-  './avatar-180.png',
-  './avatar-512.png',
+  './avatar-180.jpg',
+  './avatar-512.jpg',
   './manifest.webmanifest'
 ];
 
 /* 这些文件名不带内容哈希：换了图标或 manifest，URL 却没变，
    必须每次换代强制重取，否则主屏幕会一直显示旧图标。 */
-const FRESH_ASSETS = ['avatar-180.png', 'avatar-512.png', 'manifest.webmanifest'];
+const FRESH_ASSETS = ['avatar-180.jpg', 'avatar-512.jpg', 'manifest.webmanifest'];
 
 function abs(p){ return new URL(p, self.registration.scope).href; }
 
@@ -136,10 +136,14 @@ self.addEventListener('activate', function (e) {
           var keep = appScriptOf(html);
           if (!keep) return null; /* 没读到外壳就保守跳过清理 */
           keep = abs('./' + keep);
+          /* 图标/manifest 也算一遍：换名字（png→jpg）后旧条目会一直占着几十上百 KB */
+          var keepAssets = STATIC_ASSETS.map(function (p) { return abs(p); });
           return caches.open(STATIC).then(function (c) {
             return c.keys().then(function (reqs) {
               return Promise.all(reqs.map(function (r) {
                 if (/\/app\.[A-Za-z0-9]+\.js$/.test(r.url) && r.url !== keep) return c.delete(r);
+                if (/\/(avatar|icon)-[^/]+\.(png|jpg|jpeg|webp)$/i.test(r.url) &&
+                    keepAssets.indexOf(r.url) < 0) return c.delete(r);
                 return null;
               }));
             });
