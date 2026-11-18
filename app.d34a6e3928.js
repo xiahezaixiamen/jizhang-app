@@ -2116,19 +2116,47 @@ var months = lastMonths(6);
 var incs = months.map(function(mm){ return monthStats(mm).income; });
 var exps = months.map(function(mm){ return monthStats(mm).expense; });
 var bal = months.map(function(mm){ return monthStats(mm).balance; });
+/* 渐变填充用的线条下方色块：顶部有色、底部透明，比实心柱轻很多 */
+function areaGrad(rgb){
+return function(ctx){
+var chart = ctx.chart, area = chart.chartArea, c = chart.ctx;
+if (!area) return 'rgba(' + rgb + ',.14)';
+var g = c.createLinearGradient(0, area.top, 0, area.bottom);
+g.addColorStop(0, 'rgba(' + rgb + ',.26)');
+g.addColorStop(1, 'rgba(' + rgb + ',0)');
+return g;
+};
+}
+var expOpt = baseOpts({plugins:{
+legend:{display:true, position:'top', align:'end',
+labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:'rgba(60,60,67,.7)'}},
+tooltip:{backgroundColor:'rgba(0,0,0,.82)', padding:10, cornerRadius:8,
+titleFont:{size:12}, bodyFont:{size:12},
+callbacks:{
+label:function(c){ return c.dataset.label + '：' + money(c.parsed.y); },
+footer:function(items){
+if (!items.length) return '';
+var i = items[0].dataIndex, v = bal[i] || 0;
+return '结余：' + (privacyOn ? PRIVACY_MASK
+: (v >= 0 ? '+' : '−') + money(Math.abs(v)));
+}
+}}
+}});
+expOpt.scales.y.beginAtZero = true;
 draw('c-ana-exp', {
-type: 'bar',
+type: 'line',
 data: {
 labels: months.map(function(mm){ return mm.slice(5) + '月'; }),
 datasets: [
-{label:'收入', data: incs, backgroundColor:'#34c759', maxBarThickness:16, borderRadius:4},
-{label:'支出', data: exps, backgroundColor:'#ff3b30', maxBarThickness:16, borderRadius:4},
-{label:'结余', type:'line', data: bal, borderColor:'#0071e3', tension:.3,
-pointRadius:2, borderWidth:2, fill:false}
+{label:'收入', data: incs, borderColor:'#34c759', borderWidth:2,
+tension:.35, pointRadius:2, pointHoverRadius:4, fill:true,
+backgroundColor: areaGrad('52,199,89')},
+{label:'支出', data: exps, borderColor:'#ff3b30', borderWidth:2,
+tension:.35, pointRadius:2, pointHoverRadius:4, fill:true,
+backgroundColor: areaGrad('255,59,48')}
 ]
 },
-options: baseOpts({plugins:{legend:{display:true, position:'top', align:'end',
-labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:'rgba(60,60,67,.7)'}}}})
+options: expOpt
 });
 cpRender();
 }
@@ -2154,6 +2182,9 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'59', date:'2026-11-18', items:[
+'「近 6 个月收支趋势」改成双色折线 + 渐变面积，比原来的并排柱子清爽；结余放进了悬浮提示'
+]},
 {v:'58', date:'2026-11-18', items:[
 '「检查更新」点一下就自动装好并刷新，不用再关掉应用重开'
 ]},
