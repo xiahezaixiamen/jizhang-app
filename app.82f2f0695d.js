@@ -1428,17 +1428,17 @@ return true;
 单日弹窗同样用可编辑行（点行编辑、点「删」删除）：编辑弹窗由返回栈接回当日弹窗，
 删除则由 reload() 就地刷新，不会留下过期内容。readOnly 仅留给不需要入口的外部展示。 */
 function ledRowHtml(t, readOnly){
-var catLabel;
-if (t.type === 'expense' || t.type === 'income'){
-/* 金额前不再带 +/−：红绿已经区分收支，符号纯属重复噪音 */
-catLabel = t.category;
-} else if (t.type === 'transfer'){
+var sign, catLabel;
+if (t.type === 'expense'){ sign = '−'; catLabel = t.category; }
+else if (t.type === 'income'){ sign = '+'; catLabel = t.category; }
+else if (t.type === 'transfer'){
+sign = '';
 var from = accountById(t.accountId), to = accountById(t.toAccountId);
 /* 自动定投标「定投」，手动转账标「转账」，一眼能分开 */
 catLabel = (t.autoKind === AUTO_KIND.DCA ? '定投 ' : '转账 ') +
 (from ? from.name : '?') + ' → ' + (to ? to.name : '?');
 } else {
-catLabel = '余额调整';
+sign = ''; catLabel = '余额调整';
 }
 var acc = accountById(t.accountId);
 /* 定投的备注固定是「每日定投」，标签已经写了，避免一行里重复两遍 */
@@ -1453,7 +1453,7 @@ return '<div class="list-item' + (editable ? ' is-editable' : '') + '"' +
 ? '<span class="tag" style="margin-left:6px;background:var(--primary-weak);color:var(--primary)">报销</span>'
 : '') + '</span>' +
 '<span class="amt ' + (t.type === 'expense' ? 'neg' : (t.type === 'income' ? 'pos' : 'muted')) + '">' +
-(t.type === 'transfer' ? money(t.amount) : num(t.amount)) + '</span>' +
+(t.type === 'transfer' ? money(t.amount) : sign + num(t.amount)) + '</span>' +
 (readOnly ? '' : (t.auto
 ? '<button class="btn btn-sm" data-act="auto-delete" data-id="' + esc(t.ruleId || '') +
 '" data-date="' + esc(t.date) + '">删</button>'
@@ -1464,9 +1464,11 @@ return '<div class="list-item' + (editable ? ' is-editable' : '') + '"' +
 /* 日历只是视图层：点格子弹出当天全部明细，不在日历下方内联展开。
 配色与格内净额都取自「当天全部记录」的汇总（不受筛选影响），
 且只按汇总净额判定，绝不按单条记录的正负号上色。 */
+/* 日历格子里只显示金额本身，不带 +/−：红绿底色与文字颜色已经区分收多还是花多，
+符号在这里是重复噪音，还会把 9.5px 的小字挤窄。 */
 function ledCalAmt(v){
 if (privacyOn) return PRIVACY_MASK;
-return (v >= 0 ? '+' : '-') + Math.abs(v).toFixed(2);
+return Math.abs(v).toFixed(2);
 }
 function ledDateCn(iso){
 return (+String(iso).slice(5, 7)) + '月' + (+String(iso).slice(8, 10)) + '日';
@@ -1519,8 +1521,11 @@ if (future) cls += ' is-future';
 if (iso === ledSelDate) cls += ' is-sel';
 var vCls = tone === 'in' ? ' pos' : (tone === 'out' ? ' neg' : '');
 var v = (has && !future) ? ledCalAmt(net) : '';
+/* 视觉上不写符号，但读屏仍要能听出是收还是支 */
+var ariaNet = !has || future ? '0.00'
+: (privacyOn ? '金额已隐藏' : ((net >= 0 ? '+' : '−') + Math.abs(net).toFixed(2)));
 html += '<button type="button" class="' + cls + '" data-act="led-day" data-date="' + iso +
-'" aria-label="' + iso + (iso === t0 ? ' 今天' : '') + ' 净额 ' + (v || '0.00') + '">' +
+'" aria-label="' + iso + (iso === t0 ? ' 今天' : '') + ' 净额 ' + ariaNet + '">' +
 '<span class="d">' + d + '</span>' +
 (v ? '<span class="v' + vCls + '">' + v + '</span>' : '') +
 (iso === t0 ? '<span class="today-dot"></span>' : '') + '</button>';
