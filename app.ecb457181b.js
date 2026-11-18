@@ -2193,6 +2193,9 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'64', date:'2026-11-18', items:[
+'优化缓存层的注册方式：同一版本内打开不再重复下载，只有点「检查更新」才动缓存'
+]},
 {v:'63', date:'2026-11-18', items:[
 '数据页去掉冗长的「数据说明」，只保留版本、备份、数据规模和反馈'
 ]},
@@ -2302,7 +2305,7 @@ reg.update() 拿到的仍是旧脚本，永远发现不了新版。
 换一个带时间戳的脚本地址重新注册：浏览器会当作新脚本去下载，
 绕开旧缓存策略，装好后照样 skipWaiting + claim，触发 controllerchange。 */
 return navigator.serviceWorker
-.register('sw.js?f=' + Date.now(), {updateViaCache:'none'})
+.register('sw.js?v=' + (srv || Date.now()), {updateViaCache:'none'})
 .then(function(reg){ return reg.update(); })
 .catch(function(){ return null; })
 .then(function(){
