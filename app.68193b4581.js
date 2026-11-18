@@ -2154,6 +2154,9 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'58', date:'2026-11-18', items:[
+'「检查更新」点一下就自动装好并刷新，不用再关掉应用重开'
+]},
 {v:'57', date:'2026-11-18', items:[
 '「版本更新」改为跟着实际版本走：每次发布都会在这里显示对应的改动'
 ]},
@@ -2204,26 +2207,53 @@ var badge = document.getElementById('ver-badge');
 if (badge) badge.textContent = cur ? 'v' + cur : '本地版';
 box.innerHTML = CHANGELOG.slice(0, 2).map(verItemHtml).join('');
 }
-/* 手动触发一次 SW 更新检查：iPhone 上 PWA 常驻后台时，系统可能很久都不主动检查，
-这里给一个明确入口，点完提示「重开一次生效」。 */
+/* 手动触发一次更新，并**直接切到新版本**：
+update() 会让浏览器绕过 HTTP 缓存重新拉 sw.js，新 SW 装好后会 skipWaiting + claim，
+触发 controllerchange；这时刷新页面拿到的一定是新外壳，不用再让用户自己关掉重开。
+iOS 主屏 App 平时检查得很懒，这个按钮就是用来手动推它一把的。 */
 function checkUpdate(){
+var btn = document.getElementById('check-update-btn');
 if (!('serviceWorker' in navigator)){
 alert('这个浏览器不支持离线缓存，直接刷新页面即可拿到最新版。');
 return;
 }
-navigator.serviceWorker.getRegistration().then(function(reg){
-if (!reg){
-alert('还没有注册离线缓存，刷新一次页面就好。');
-return null;
+if (btn && btn.disabled) return;
+if (btn){ btn.disabled = true; btn.textContent = '检查中…'; }
+var reloading = false;
+function restore(){
+if (reloading) return;
+if (btn){ btn.disabled = false; btn.textContent = '检查更新'; }
 }
-return reg.update().then(function(){
-var pending = !!(reg.installing || reg.waiting);
-alert(pending
-? '发现新版本，正在后台安装。装好后关闭应用再打开一次就生效。'
-: '当前已是最新版本' + (appVersion() ? '（v' + appVersion() + '）' : '') + '。');
+/* 新 SW 接管的那一刻刷新：这是「真的换版本了」的唯一可靠信号 */
+navigator.serviceWorker.addEventListener('controllerchange', function(){
+if (reloading) return;
+reloading = true;
+if (btn) btn.textContent = '正在更新…';
+location.reload();
+}, {once:true});
+navigator.serviceWorker.getRegistration().then(function(reg){
+if (!reg) return null;   /* 还没注册过：刷新一次即可 */
+return reg.update();
+}).then(function(){
+setTimeout(function(){
+if (reloading) return;
+navigator.serviceWorker.getRegistration().then(function(reg){
+if (reg && (reg.installing || reg.waiting)){
+if (btn) btn.textContent = '正在更新…';
+setTimeout(function(){
+if (reloading) return;
+restore();
+alert('新版本已下载，请关闭应用再打开一次完成切换。');
+}, 8000);
+} else {
+restore();
+alert('当前已是最新版本' + (appVersion() ? '（v' + appVersion() + '）' : '') + '。');
+}
 });
+}, 2500);
 }).catch(function(){
-alert('检查更新失败，请确认网络后再试。');
+restore();
+alert.error('检查更新失败，请确认网络后再试。');
 });
 }
 function renderData(){
