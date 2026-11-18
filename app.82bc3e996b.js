@@ -2148,7 +2148,78 @@ dca: db.dca, fixed: db.fixed, skips: db.skips
 }
 return c.size;
 }
+/* ================= 版本更新 =================
+版本号由 build_mobile.py 从 mobile/sw.js 的 CACHE 解析后写进
+<meta name="app-version">，桌面版读源码里的同一个值。
+新增记录时写在最前面，只写用户看得懂的改动，不写内部迭代。 */
+var CHANGELOG = [
+{v:'52', date:'2026-11-18', items:[
+'数据页新增「版本更新」，可以查看当前版本号和最近的改动'
+]},
+{v:'51', date:'2026-11-18', items:[
+'日历格子里的金额去掉 + / −，只显示数字，红绿继续区分当天是花多还是收多',
+'点开某一天的明细里，金额仍保留 + / −'
+]},
+{v:'49', date:'2026-11-18', items:[
+'分析页新增「近 30 天每日支出」图（柱子 + 日均虚线），替换原来的账户收益明细表'
+]},
+{v:'48', date:'2026-11-18', items:[
+'修复「打开变慢、卡片一直加载」：图表库和脚本改为跨版本缓存，换版本不再重下约 400KB'
+]},
+{v:'47', date:'2026-11-17', items:[
+'概览页改版：首页只留一个「本月可花」大数字 + 本月支出构成环图',
+'净资产、理财、长期持有、本月收入与两张资产图收进「查看全部资产与趋势」折叠里'
+]},
+{v:'46', date:'2026-11-17', items:[
+'金额输入框统一弹出带小数点的数字键盘，备注、搜索仍是文字键盘'
+]},
+{v:'45', date:'2026-11-17', items:[
+'分析页去掉与「账户收益明细」重复的账户盈亏柱状图'
+]}
+];
+function appVersion(){
+var m = document.querySelector('meta[name="app-version"]');
+return m ? (m.getAttribute('content') || '') : '';
+}
+function verItemHtml(it){
+return '<div class="ver-item"><div class="ver-head"><b>v' + esc(String(it.v)) + '</b>' +
+'<span>' + esc(it.date) + '</span></div><ul>' +
+it.items.map(function(t){ return '<li>' + esc(t) + '</li>'; }).join('') + '</ul></div>';
+}
+/* 只展示最近两条：版本说明是「这次更新了什么」，不是更新日志归档，
+全部铺开会把数据页压得很长。完整记录留在 CHANGELOG 里备查。 */
+function renderChangelog(){
+var box = document.getElementById('ver-log');
+if (!box) return;
+var cur = appVersion();
+var badge = document.getElementById('ver-badge');
+if (badge) badge.textContent = cur ? 'v' + cur : '本地版';
+box.innerHTML = CHANGELOG.slice(0, 2).map(verItemHtml).join('');
+}
+/* 手动触发一次 SW 更新检查：iPhone 上 PWA 常驻后台时，系统可能很久都不主动检查，
+这里给一个明确入口，点完提示「重开一次生效」。 */
+function checkUpdate(){
+if (!('serviceWorker' in navigator)){
+alert('这个浏览器不支持离线缓存，直接刷新页面即可拿到最新版。');
+return;
+}
+navigator.serviceWorker.getRegistration().then(function(reg){
+if (!reg){
+alert('还没有注册离线缓存，刷新一次页面就好。');
+return null;
+}
+return reg.update().then(function(){
+var pending = !!(reg.installing || reg.waiting);
+alert(pending
+? '发现新版本，正在后台安装。装好后关闭应用再打开一次就生效。'
+: '当前已是最新版本' + (appVersion() ? '（v' + appVersion() + '）' : '') + '。');
+});
+}).catch(function(){
+alert('检查更新失败，请确认网络后再试。');
+});
+}
 function renderData(){
+renderChangelog();
 var bytes = dataSize();
 document.getElementById('data-stats').textContent =
 '账户 ' + db.accounts.length + ' 个 · 流水 ' + db.transactions.length + ' 条 · 自动 ' +
