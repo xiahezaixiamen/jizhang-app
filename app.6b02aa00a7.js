@@ -2193,6 +2193,9 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'67', date:'2026-11-18', items:[
+'更新时显示「正在更新…」，回来还停在原来的页签和滚动位置'
+]},
 {v:'66', date:'2026-11-18', items:[
 '修掉「提示更新到新版、刷新后却还是旧版」：缓存层不再把旧页面当成新版存下来'
 ]},
@@ -2397,9 +2400,17 @@ if (st.tab && st.tab !== activeTab){
 var btn = document.querySelector('#nav button[data-tab="' + st.tab + '"]');
 if (btn) btn.click();
 }
-window.scrollTo(0, st.y || 0);
+/* 等一帧再滚：数据页刚渲染完，立即 scrollTo 会被高度还没撑开的内容顶回去 */
+var y = st.y || 0;
+requestAnimationFrame(function(){ window.scrollTo(0, y); });
 } catch(e){}
 document.documentElement.classList.remove('jz-fadeout');
+/* 更新遮罩：淡出后移除，让「正在更新…」自然过渡到原来的页面 */
+var mask = document.querySelector('.upd-mask');
+if (mask){
+mask.classList.add('out');
+setTimeout(function(){ if (mask.parentNode) mask.parentNode.removeChild(mask); }, 240);
+}
 }
 function renderCurrent(){
 stopRoll();
