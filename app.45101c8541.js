@@ -2061,29 +2061,52 @@ options: Object.assign(baseOpts(), {scales:{x:{display:false}, y:{display:false}
 plugins:{legend:{display:false}, tooltip:{enabled:false},
 title:{display:true, text:'所选区间内还没有足够的数据点', color:'rgba(60,60,67,.45)', font:{size:12, weight:'400'}}}})});
 }
-var inv = db.accounts.filter(function(a){ return kindOf(a) === 'invest'; });
-var balNow = currentBalances();
-var perf = inv.map(function(a){ return accountPerf(a, balNow[a.id] || 0); });
-var rows = perf.map(function(p){
-var a = accountById(p.id);
-var rate = p.rate * 100;
-var rateCls = privacyOn ? '' : (Math.abs(p.gain) < 0.005 ? 'muted' : (p.gain > 0 ? 'pos' : 'neg'));
-var rateText = privacyOn ? PRIVACY_MASK
-: ((Math.abs(p.gain) < 0.005) ? '—' : (rate >= 0 ? '+' : '') + rate.toFixed(2) + '%');
-return '<tr>' +
-'<td><strong>' + esc(a.name) + '</strong><br><span class="muted" style="font-size:11px">' +
-(p.hasMarket ? '已记录市值变动' : '尚未更新过市值') + '</span></td>' +
-'<td class="num">' + num(p.start) + '</td>' +
-'<td class="num">' + num(p.invested) + '</td>' +
-'<td class="num ' + (privacyOn ? '' : (p.gain >= 0 ? 'pos' : 'neg')) + '">' +
-(privacyOn ? '' : (p.gain >= 0 ? '+' : '')) + num(p.gain) + '</td>' +
-'<td class="num">' + num(p.end) + '</td>' +
-'<td class="num ' + rateCls + '">' + rateText + '</td>' +
-'</tr>';
-}).join('');
-document.getElementById('ana-table').innerHTML = perf.length
-? '<table><thead><tr><th>账户</th><th class="num">建账余额</th><th class="num">净投入</th><th class="num">盈亏</th><th class="num">当前余额</th><th class="num">收益率</th></tr></thead><tbody>' + rows + '</tbody></table>'
-: '<div class="empty">还没有股票 / 基金类账户。这类账户的盈亏由「更新余额」时的市值差额产生。</div>';
+/* 近 30 天每日支出：与洞察区「近 30 天支出」同口径（含自动支出、排除报销与未来）。
+柱子看节奏，虚线是区间日均，一眼能看出哪几天超支。 */
+var t0 = today();
+var from30 = shiftDate(t0, -29);
+var list30 = spendIn(from30, t0);
+var byDay = {};
+list30.forEach(function(t){ byDay[t.date] = (byDay[t.date] || 0) + t.amount; });
+var days = [], vals = [], peak = {date:'', amount:0};
+for (var di = 0; di < 30; di++){
+var d = shiftDate(from30, di);
+var v = byDay[d] || 0;
+days.push(d.slice(5));
+vals.push(Math.round(v * 100) / 100);
+if (v > peak.amount) peak = {date: d, amount: v};
+}
+var total30 = list30.reduce(function(s, t){ return s + t.amount; }, 0);
+var avg30 = total30 / 30;
+var dailyNote = document.getElementById('ana-daily-note');
+if (dailyNote) dailyNote.textContent = privacyOn
+? '近 30 天 · 日均 ' + PRIVACY_MASK
+: (list30.length
+? '日均 ' + money(avg30) + ' · 最高 ' + money(peak.amount) + '（' + peak.date.slice(5) + '）'
+: '近 30 天还没有支出记录');
+if (total30 > 0){
+draw('c-ana-daily', {
+type: 'bar',
+data: {
+labels: days,
+datasets: [
+{label:'每日支出', data: vals, backgroundColor:'rgba(0,113,227,.72)',
+borderRadius:3, maxBarThickness:16, order:2},
+{label:'日均', type:'line', data: days.map(function(){ return Math.round(avg30*100)/100; }),
+borderColor:'#ff9500', borderWidth:1.5, borderDash:[4,4],
+pointRadius:0, pointHoverRadius:0, fill:false, order:1}
+]
+},
+options: baseOpts({plugins:{legend:{display:true, position:'top', align:'end',
+labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:'rgba(60,60,67,.7)'}}}})
+});
+} else {
+draw('c-ana-daily', {type:'bar', data:{labels:[], datasets:[]},
+options: Object.assign(baseOpts(), {scales:{x:{display:false}, y:{display:false}},
+plugins:{legend:{display:false}, tooltip:{enabled:false},
+title:{display:true, text:'近 30 天还没有支出记录', color:'rgba(60,60,67,.45)',
+font:{size:12, weight:'400'}}}})});
+}
 var months = lastMonths(6);
 var incs = months.map(function(mm){ return monthStats(mm).income; });
 var exps = months.map(function(mm){ return monthStats(mm).expense; });
