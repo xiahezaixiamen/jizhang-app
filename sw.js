@@ -1,7 +1,7 @@
 /* 离线缓存：让「添加到主屏幕」之后断网也能打开。
    数据本身在 IndexedDB，与本缓存无关；这里只缓存界面外壳。
    改动界面后把 CACHE 版本号 +1，手机下次联网打开时会自动换新。 */
-const CACHE = 'jizhang-v65';
+const CACHE = 'jizhang-v66';
 /* 版本号同时用于给 localdb.js 加查询串：HTML 里的引用一变，
    旧 Service Worker 的缓存必然 miss，从而强制回源拿新代码。
    必须与 build_mobile.py::sw_ver() 提取的纯数字一致（?v=29），
@@ -53,18 +53,43 @@ function pickFromOld(url){
   }).catch(function () { return null; });
 }
 
+/* 取资源时强制绕过 HTTP 缓存：GitHub Pages 给所有文件 max-age=600，
+   而 install 里的 c.add() 默认走 HTTP 缓存，会把「旧的外壳」写进新版本缓存，
+   结果就是新 SW 装好了、刷新回来页面还是上一版。 */
+function fetchFresh(url){
+  return fetch(url, {cache:'no-store'});
+}
+/* 把新外壳写进版本缓存，并确认拿到的确实是这一版：
+   CDN 有时仍返回上一版，这时换成带时间戳的地址再要一次。 */
+function cacheShell(){
+  function put(html){
+    return caches.open(CACHE).then(function (c) {
+      return c.put(NAV_KEY, new Response(html, {
+        headers:{'Content-Type':'text/html; charset=utf-8'}
+      }));
+    }).then(function () { return html; });
+  }
+  return fetchFresh(abs('./')).then(function (res) {
+    return res.text();
+  }).then(function (html) {
+    var m = /app-version"\s+content="(\d+)"/.exec(html || '');
+    if (m && m[1] === VER) return put(html);
+    return fetchFresh(abs('./') + '?shell=' + Date.now()).then(function (res2) {
+      return res2.text();
+    }).then(put);
+  });
+}
+
 self.addEventListener('install', function (e) {
   e.waitUntil(
-    caches.open(CACHE).then(function (c) {
-      /* 外壳与数据层一起写入新版本缓存。逐个 add 并吞掉失败：addAll 是原子的，
-         任一资源 404 或网络抖动都会让整个 install 失败，下次打开又从头重装。 */
-      return Promise.all([
-        c.add(abs('./')).catch(function () { return null; }),
-        c.add(abs('./localdb.js?v=' + VER)).catch(function () { return null; })
-      ]).then(function () { return c.match(NAV_KEY); });
-    }).then(function (res) {
-      return res ? res.text() : '';
-    }).then(function (html) {
+    Promise.all([
+      cacheShell().catch(function () { return ''; }),
+      caches.open(CACHE).then(function (c) {
+        /* 数据层带着 ?v=版本号，URL 变了就不会命中旧缓存 */
+        return c.add(abs('./localdb.js?v=' + VER)).catch(function () { return null; });
+      })
+    ]).then(function (results) {
+      var html = results[0] || '';
       /* 顺着新外壳把它引用的 app.<hash>.js 一起取下来，HTML 与脚本同时就位，
          不会出现「页面已经是新版、脚本还在下载」的空窗。 */
       var list = STATIC_ASSETS.slice();
@@ -77,13 +102,15 @@ self.addEventListener('install', function (e) {
           var url = abs(p);
           var name = p.replace(/^\.\//, '');
           if (FRESH_ASSETS.indexOf(name) >= 0) {
-            return c.add(url).catch(function () { return null; });
+            return fetchFresh(url).then(function (r) { return c.put(url, r); })
+              .catch(function () { return null; });
           }
           return c.match(url).then(function (hit) {
             if (hit) return null;
             return pickFromOld(url).then(function (old) {
               if (old) return c.put(url, old);
-              return c.add(url).catch(function () { return null; });
+              return fetchFresh(url).then(function (r) { return c.put(url, r); })
+                .catch(function () { return null; });
             });
           });
         }));
