@@ -1954,7 +1954,8 @@ return;
 }
 if (canvas) canvas.style.display = '';
 if (empty) empty.style.display = 'none';
-if (box) box.style.height = Math.min(420, Math.max(200, cats.length * 34 + 56)) + 'px';
+/* 分类少时容器不再硬撑 200px：一条数据孤零零飘在空白里很难看 */
+if (box) box.style.height = Math.min(420, Math.max(132, cats.length * 40 + 64)) + 'px';
 var opts = baseOpts({indexAxis:'y'});
 opts.interaction = {mode:'nearest', intersect:true};
 opts.plugins.tooltip.callbacks.label = function(c){ return money(c.parsed.x); };
@@ -1963,11 +1964,21 @@ opts.onClick = function(evt, els){
 if (els && els.length && cats[els[0].index]) cpOpenDetail(cats[els[0].index].cat);
 else cpOpenDetail(null);
 };
+/* 支出条不再用满饱和的实心红：横向渐隐 + 全圆角，面积大也不刺眼。
+分类只有一个时它就是一条长条，柔和度比饱和度重要。 */
 draw('cp-chart', {
 type:'bar',
 data:{labels:cats.map(function(c){ return c.cat; }),
 datasets:[{label:'支出', data:cats.map(function(c){ return c.amount; }),
-backgroundColor:'#ff3b30', borderRadius:4, maxBarThickness:22}]},
+backgroundColor: function(ctx){
+var chart = ctx.chart, area = chart.chartArea;
+if (!area) return 'rgba(255,59,48,.55)';
+var g = chart.ctx.createLinearGradient(area.left, 0, area.right, 0);
+g.addColorStop(0, 'rgba(255,59,48,.66)');
+g.addColorStop(1, 'rgba(255,59,48,.26)');
+return g;
+},
+borderRadius:6, borderSkipped:false, maxBarThickness:18}]},
 options: opts
 });
 }
@@ -2182,6 +2193,9 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'61', date:'2026-11-18', items:[
+'「自定义周期花销」的红色柱子改成横向渐隐 + 全圆角，分类少时卡片高度也收紧了'
+]},
 {v:'60', date:'2026-11-18', items:[
 '「检查更新」会先向服务器确认真实版本号，能分清「确实最新」和「本机缓存还没过期」'
 ]},
