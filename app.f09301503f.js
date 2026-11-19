@@ -1,5 +1,4 @@
 'use strict';
-'use strict';
 var TYPE_META = {
 deposit:   {label:'活期',                color:'#0071e3', kind:'cash',      role:'daily'},
 bank:      {label:'银行卡',              color:'#34c759', kind:'cash',      role:'daily'},
@@ -262,30 +261,6 @@ out.push(yy + '-' + String(mm+1).padStart(2,'0'));
 }
 return out;
 }
-/* 投资类账户盈亏：当前余额 − 建账余额 − 净投入（含虚拟定投，避免把投入误算成盈亏） */
-function accountPerf(a, balNow){
-var t0 = today();
-var invested = 0, withdrawn = 0, hasMarket = false;
-allTx().forEach(function(t){
-if (t.date > t0) return;
-if (t.type === 'transfer'){
-if (t.toAccountId === a.id) invested += t.amount;
-if (t.accountId === a.id) withdrawn += t.amount;
-} else if (t.accountId === a.id && t.type === 'adjust'){
-hasMarket = true;
-}
-});
-var netIn = invested - withdrawn;
-var end = (balNow == null) ? a.initial_balance + netIn : balNow;
-var gain = end - a.initial_balance - netIn;
-var base = Math.abs(a.initial_balance) + netIn / 2;
-if (base < 0.01) base = Math.abs(gain) || 1;
-return {
-id: a.id, name: a.name, type: a.type,
-start: a.initial_balance, invested: netIn, gain: gain,
-end: end, rate: gain / base, hasMarket: hasMarket
-};
-}
 /* ================= 金额隐私 ================= */
 var EYE_OFF = '<path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>' +
 '<path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-1.7 2.7"/>' +
@@ -354,8 +329,11 @@ privacyOn = !privacyOn;
 updatePrivacyBtn();
 renderAll();
 /* 洞察区只在资产页渲染。人在别的页签切换隐私时，隐藏 section 里会留着上一次的
-金额文本；同步刷一次，避免真实金额残留在 DOM 里（切回资产页时也会重绘）。 */
-if (activeTab !== 'overview' && typeof renderInsights === 'function') renderInsights();
+金额文本；直接清空即可，不必重跑整套统计（切回资产页时会重新渲染）。 */
+if (activeTab !== 'overview'){
+var g = document.getElementById('insight-grid');
+if (g) g.innerHTML = '';
+}
 if (wasHidden && !privacyOn) rollMetrics();
 }
 document.getElementById('privacy-btn').addEventListener('click', togglePrivacy);
@@ -682,12 +660,39 @@ var pm = monthShift(ym, -1);
 var pDay = Math.min(day, daysInMonth(pm));
 var prevFrom = pm + '-01', prevTo = pm + '-' + String(pDay).padStart(2,'0');
 var d30From = shiftDate(t0, -29);
-var cur = spendIn(curFrom, curTo);
-var prev = spendIn(prevFrom, prevTo);
-var d30 = spendIn(d30From, t0);
+/* 三段时间窗共用一次 statTx 扫描，避免 spendIn 各过滤一遍全量流水。
+口径与 spendIn 完全一致：只算已发生（<=今天）的支出。 */
+var cur = [], prev = [], d30 = [], all = statTx(), curCatCount = {};
+for (var i = 0; i < all.length; i++){
+var tx = all[i];
+if (tx.type !== 'expense' || tx.date > t0) continue;
+if (tx.date >= curFrom){
+cur.push(tx);
+var ck = tx.category || '其他';
+curCatCount[ck] = (curCatCount[ck] || 0) + 1;
+}
+if (tx.date >= prevFrom && tx.date <= prevTo) prev.push(tx);
+if (tx.date >= d30From) d30.push(tx);
+}
 var curTotal = spendTotal(cur), prevTotal = spendTotal(prev);
 var curMan = spendManual(cur), curAuto = spendAuto(cur);
 var cats = spendByCat(cur), prevCats = spendByCat(prev);
+/* 手动支出的分类 / 金额区间 / 星期分布只扫一遍，供「笔均 / 笔数 / 周末」三张卡复用 */
+var manCat = {}, manBucket = [0, 0, 0, 0], manWeek = [0, 0, 0, 0, 0, 0, 0],
+manWeekSum = [0, 0, 0, 0, 0, 0, 0], manTotal = 0, manMax = 0,
+manWECount = 0, manWETotal = 0, manWDCount = 0, manWDTotal = 0;
+curMan.forEach(function(t){
+var a = t.amount || 0, k = t.category || '其他';
+var c = manCat[k] || (manCat[k] = {count: 0, total: 0});
+c.count++; c.total += a;
+manBucket[a < 50 ? 0 : a < 100 ? 1 : a < 300 ? 2 : 3]++;
+var w = new Date(t.date + 'T00:00:00').getDay();
+manWeek[w]++; manWeekSum[w] += a;
+manTotal += a;
+if (a > manMax) manMax = a;
+if (w === 0 || w === 6){ manWECount++; manWETotal += a; }
+else { manWDCount++; manWDTotal += a; }
+});
 var none = cur.length === 0;
 var hasPrev = prev.length > 0 && prevTotal > 0;
 var out = [];
@@ -735,7 +740,7 @@ insTable([{t:'分类'},{t:'金额',num:true},{t:'占比',num:true},{t:'笔数',n
 top3.map(function(c){
 return [insText(esc(c.cat)), money(c.amount),
 insPct(curTotal>0 ? c.amount/curTotal*100 : 0),
-insCount(cur.filter(function(t){ return (t.category||'其他') === c.cat; }).length)];
+insCount(curCatCount[c.cat] || 0)];
 })),
 empty: none
 });
@@ -776,14 +781,14 @@ body: none ? insEmpty('本月至今还没有支出记录') :
 insHead('', '自动支出由「固定支出规则」按日历派生（每天 / 工作日 / 每月固定日），不写入流水表；它会主导笔数与频次，所以笔均类指标只看手动记录。') +
 insTable([{t:'来源'},{t:'金额',num:true},{t:'笔数',num:true},{t:'占比',num:true}], [
 ['规则自动', money(autoSum), insCount(curAuto.length), insPct(curTotal>0 ? autoSum/curTotal*100 : 0)],
-['手动记录', money(spendTotal(curMan)), insCount(curMan.length),
-insPct(curTotal>0 ? spendTotal(curMan)/curTotal*100 : 0)],
+['手动记录', money(manTotal), insCount(curMan.length),
+insPct(curTotal>0 ? manTotal/curTotal*100 : 0)],
 ['合计', money(curTotal), insCount(cur.length), insPct(100)]
 ]) + '<div class="note">' + cfg + '</div>',
 empty: none
 });
 /* 5 · 笔均支出（仅手动） */
-var avg = curMan.length ? spendTotal(curMan)/curMan.length : 0;
+var avg = curMan.length ? manTotal/curMan.length : 0;
 var med = insMedian(curMan);
 var buckets = [[0,50,'50 元以下'],[50,100,'50~100 元'],[100,300,'100~300 元'],[300,Infinity,'300 元以上']];
 out.push({
@@ -794,14 +799,13 @@ title:'笔均支出 · 仅手动',
 body: !curMan.length ? insEmpty('本月至今还没有手动支出记录') :
 insHead('', '中位数比均值更抗偶发大额；两者差距大说明有少数特别大的一笔。') +
 insTable([{t:'统计量'},{t:'数值',num:true}], [
-['手动支出总额', money(spendTotal(curMan))],
+['手动支出总额', money(manTotal)],
 ['笔均', money(avg)],
 ['中位数', money(med)],
-['最大单笔', money(Math.max.apply(null, curMan.map(function(t){ return t.amount; })))]
+['最大单笔', money(manMax)]
 ]) + insTable([{t:'金额区间'},{t:'笔数',num:true}],
-buckets.map(function(b){
-return [insText(b[2]), insCount(curMan.filter(function(t){
-return t.amount >= b[0] && t.amount < b[1]; }).length)];
+buckets.map(function(b, bi){
+return [insText(b[2]), insCount(manBucket[bi])];
 })),
 empty: !curMan.length
 });
@@ -824,11 +828,6 @@ money(byDay[d])];
 empty: !d30.length
 });
 /* 7 · 手动支出笔数 */
-var manByCat = {};
-curMan.forEach(function(t){
-var k = t.category || '其他';
-manByCat[k] = (manByCat[k] || 0) + 1;
-});
 out.push({
 lab:'手动支出笔数',
 val: curMan.length ? insCount(curMan.length) : insNA(),
@@ -836,9 +835,8 @@ foot: '本月至今 · 不含规则生成',
 title:'手动支出笔数',
 body: insHead('', '只数手动记录；规则自动支出按日历每天一笔，计入笔数会让它失去意义。') +
 insTable([{t:'分类'},{t:'笔数',num:true},{t:'金额',num:true}],
-Object.keys(manByCat).sort(function(a,b){ return manByCat[b]-manByCat[a]; }).map(function(k){
-return [insText(esc(k)), insCount(manByCat[k]),
-money(spendTotal(curMan.filter(function(t){ return (t.category||'其他') === k; })))];
+Object.keys(manCat).sort(function(a,b){ return manCat[b].count-manCat[a].count; }).map(function(k){
+return [insText(esc(k)), insCount(manCat[k].count), money(manCat[k].total)];
 })),
 empty: !curMan.length
 });
@@ -889,18 +887,13 @@ while (p <= curTo){
 if (isWeekend(p)) we++; else wd++;
 p = shiftDate(p, 1);
 }
-var manWE = curMan.filter(function(t){ return isWeekend(t.date); });
-var manWD = curMan.filter(function(t){ return !isWeekend(t.date); });
-var avgWE = we > 0 ? spendTotal(manWE)/we : 0;
-var avgWD = wd > 0 ? spendTotal(manWD)/wd : 0;
+var avgWE = we > 0 ? manWETotal/we : 0;
+var avgWD = wd > 0 ? manWDTotal/wd : 0;
 var mult = avgWD > 0 ? avgWE/avgWD : null;
 var weekNames = ['周日','周一','周二','周三','周四','周五','周六'];
 var wdist = [];
 for (var wi = 0; wi < 7; wi++){
-var hit = curMan.filter(function(t){
-return new Date(t.date + 'T00:00:00').getDay() === wi;
-});
-wdist.push([insText(weekNames[wi]), insCount(hit.length), money(spendTotal(hit))]);
+wdist.push([insText(weekNames[wi]), insCount(manWeek[wi]), money(manWeekSum[wi])]);
 }
 out.push({
 lab:'周末 / 工作日日均',
@@ -911,8 +904,8 @@ title:'周末 / 工作日日均 · 仅手动',
 body: (!curMan.length || wd === 0 || we === 0) ? insEmpty('本月至今的工作日或周末还没有完整样本') :
 insHead('', '日均按本月至今实际的工作日/周末天数计算；只统计手动记录，避免规则自动支出按日历生成造成系统性偏差。') +
 insTable([{t:'类型'},{t:'天数',num:true},{t:'笔数',num:true},{t:'总额',num:true},{t:'日均',num:true}], [
-['工作日', insText(wd + ' 天'), insCount(manWD.length), money(spendTotal(manWD)), money(avgWD)],
-['周末', insText(we + ' 天'), insCount(manWE.length), money(spendTotal(manWE)), money(avgWE)]
+['工作日', insText(wd + ' 天'), insCount(manWDCount), money(manWDTotal), money(avgWD)],
+['周末', insText(we + ' 天'), insCount(manWECount), money(manWETotal), money(avgWE)]
 ]) + insTable([{t:'星期'},{t:'笔数',num:true},{t:'金额',num:true}], wdist),
 empty: !curMan.length
 });
@@ -2193,6 +2186,11 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'69', date:'2026-11-19', items:[
+'修掉「更新市值」选历史日期时差额算错的问题：现在按那一天的实际余额算',
+'首页统计和规则页加载快一些，流水记多了以后更明显',
+'连点「检查更新」不会再重复刷新一次'
+]},
 {v:'68', date:'2026-11-18', items:[
 '图标改用 JPEG，首次打开要下载的体积从 468KB 降到 200KB 左右'
 ]},
@@ -2280,6 +2278,7 @@ box.innerHTML = CHANGELOG.slice(0, 2).map(verItemHtml).join('');
 旧版注册的 SW 会把 sw.js 按 HTTP 缓存压最多十分钟，update() 可能根本看不到新版，
 所以先直接向服务器要一份首页、读它声明的版本号：这一步绕开 SW 缓存，
 能明确区分「服务器上确实有新版」和「这台设备的缓存还没过期」。 */
+var _updControllerHandler = null;
 function checkUpdate(){
 var btn = document.getElementById('check-update-btn');
 if (!('serviceWorker' in navigator)){
@@ -2294,8 +2293,14 @@ function restore(){
 if (reloading) return;
 if (btn){ btn.disabled = false; btn.textContent = '检查更新'; }
 }
-/* 新 SW 接管的那一刻刷新：这是「真的换版本了」的唯一可靠信号 */
-navigator.serviceWorker.addEventListener('controllerchange', function(){
+/* 新 SW 接管的那一刻刷新：这是「真的换版本了」的唯一可靠信号。
+每次点击先摘掉上一次的监听器，避免「已是最新」反复点击后累积多个 handler，
+真正换代时触发多次 reload 与状态写入。 */
+if (_updControllerHandler){
+navigator.serviceWorker.removeEventListener('controllerchange', _updControllerHandler);
+_updControllerHandler = null;
+}
+_updControllerHandler = function(){
 if (reloading) return;
 reloading = true;
 if (btn) btn.textContent = '正在更新…';
@@ -2306,7 +2311,8 @@ sessionStorage.setItem('jzUpd', JSON.stringify({tab: activeTab, y: window.scroll
 } catch(e){}
 document.documentElement.classList.add('jz-fadeout');
 setTimeout(function(){ location.reload(); }, 160);
-}, {once:true});
+};
+navigator.serviceWorker.addEventListener('controllerchange', _updControllerHandler, {once:true});
 fetch('./?probe=' + Date.now(), {cache:'no-store'}).then(function(r){
 return r.text();
 }).then(function(html){
@@ -2992,16 +2998,23 @@ var out = null;
 fixedRules().forEach(function(r){ if (r.ruleId === ruleId) out = r; });
 return out;
 }
-/* 不传 ruleId 时统计全部自动支出（洞察卡等汇总场景） */
-function fixedStats(ruleId){
-var st = {count:0, total:0, mCount:0, mTotal:0, last:''};
-var m = thisMonth();
+/* 一次遍历所有自动支出，按 ruleId 汇总，避免每条规则各扫一遍全量流水。
+无 ruleId 的老流水按原口径计入所有规则；last 取遍历顺序的最后一条。 */
+function fixedStatsMap(rules){
+var m = thisMonth(), map = {};
+rules.forEach(function(r){
+map[r.ruleId] = {count:0, total:0, mCount:0, mTotal:0, last:''};
+});
 autoTxOf(AUTO_KIND.FIXED).forEach(function(t){
-if (ruleId && t.ruleId && t.ruleId !== ruleId) return;
+var targets = t.ruleId
+? (map[t.ruleId] ? [map[t.ruleId]] : [])
+: rules.map(function(r){ return map[r.ruleId]; });
+targets.forEach(function(st){
 st.count++; st.total += t.amount; st.last = t.date;
 if (monthKey(t.date) === m){ st.mCount++; st.mTotal += t.amount; }
 });
-return st;
+});
+return map;
 }
 function fxDots(){
 var el = document.getElementById('fixed-scroll'), box = document.getElementById('fixed-dots');
@@ -3028,8 +3041,9 @@ document.getElementById('fixed-dots').innerHTML = '';
 box.onscroll = null;
 return;
 }
+var statsMap = fixedStatsMap(rules);
 box.innerHTML = rules.map(function(r){
-var c = r.current, s = fixedStats(r.ruleId);
+var c = r.current, s = statsMap[r.ruleId];
 var acc = accountById(c.accountId), invalid = !acc;
 var future = !!(c.monthlyDay && r.start > today());
 var tag = future
