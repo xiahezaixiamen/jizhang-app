@@ -267,6 +267,52 @@ out.push(yy + '-' + String(mm+1).padStart(2,'0'));
 }
 return out;
 }
+/* ================= 主题：浅色 / 暗色玻璃 =================
+配色全部挂在 CSS 变量上，这里只切 html[data-theme]，再让图表重新读一遍颜色。
+默认浅色；用户切过就记在本地，下次由 head 里的内联脚本在首帧前恢复。 */
+var THEME_KEY = 'jz_theme';
+function cssv(name, fallback){
+try {
+var v = getComputedStyle(document.documentElement).getPropertyValue(name);
+v = (v || '').trim();
+return v || fallback;
+} catch(e){ return fallback; }
+}
+function isDarkTheme(){
+return document.documentElement.getAttribute('data-theme') === 'dark';
+}
+function updateThemeBtn(){
+var btn = document.getElementById('theme-btn');
+if (!btn) return;
+var label = isDarkTheme() ? '切换浅色主题' : '切换深色主题';
+btn.setAttribute('aria-label', label);
+btn.title = label;
+btn.setAttribute('aria-pressed', String(isDarkTheme()));
+}
+function applyChartDefaults(){
+if (typeof Chart === 'undefined') return;
+Chart.defaults.color = cssv('--ink-soft', 'rgba(60,60,67,.7)');
+Chart.defaults.borderColor = cssv('--grid-line', 'rgba(0,0,0,.06)');
+}
+function applyTheme(t, save){
+var root = document.documentElement;
+if (t === 'dark') root.setAttribute('data-theme', 'dark');
+else root.removeAttribute('data-theme');
+if (save){ try { localStorage.setItem(THEME_KEY, t); } catch(e){} }
+/* 手机版 PWA 的状态栏颜色跟着走，否则暗色界面顶着一条白边 */
+var meta = document.querySelector ? document.querySelector('meta[name="theme-color"]') : null;
+if (meta) meta.setAttribute('content', t === 'dark' ? '#0b1322' : '#f5f5f7');
+updateThemeBtn();
+applyChartDefaults();
+}
+function currentTheme(){
+try { return localStorage.getItem(THEME_KEY) === 'dark' ? 'dark' : 'light'; }
+catch(e){ return 'light'; }
+}
+function toggleTheme(){
+applyTheme(isDarkTheme() ? 'light' : 'dark', true);
+if (typeof renderAll === 'function') renderAll();
+}
 /* ================= 金额隐私 ================= */
 var EYE_OFF = '<path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>' +
 '<path d="M10.7 5.1A10.4 10.4 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-1.7 2.7"/>' +
@@ -343,6 +389,7 @@ if (g) g.innerHTML = '';
 if (wasHidden && !privacyOn) rollMetrics();
 }
 document.getElementById('privacy-btn').addEventListener('click', togglePrivacy);
+document.getElementById('theme-btn').addEventListener('click', toggleTheme);
 /* ================= 通用弹窗 ================= */
 var ALERT_SVG = {
 info:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="9.2"/><path d="M12 11.2v5"/><path d="M12 7.6h.01"/></svg>',
@@ -555,12 +602,16 @@ charts[id] = new Chart(el, cfg);
 }
 function baseOpts(extra){
 var horizontal = !!(extra && extra.indexAxis === 'y');
-var catAxis = {grid:{display:false}, ticks:{font:{size:11}, color:'rgba(60,60,67,.62)'}, border:{display:false}};
-var numAxis = {grid:{color:'rgba(0,0,0,.05)'}, border:{display:false},
-ticks:{font:{size:11}, color:'rgba(60,60,67,.62)',
+/* 图表颜色跟着主题走：每次重绘都重新读一次 CSS 变量，切主题后重画即生效 */
+var ink = cssv('--ink-soft', 'rgba(60,60,67,.7)');
+var gridLine = cssv('--grid-line', 'rgba(0,0,0,.06)');
+var tip = cssv('--tooltip', 'rgba(0,0,0,.82)');
+var catAxis = {grid:{display:false}, ticks:{font:{size:11}, color:ink}, border:{display:false}};
+var numAxis = {grid:{color:gridLine}, border:{display:false},
+ticks:{font:{size:11}, color:ink,
 callback:function(v){ return privacyOn ? '' : (Math.abs(v)>=10000 ? (v/10000)+'万' : v); }}};
 var timeAxis = {grid:{display:false}, border:{display:false},
-ticks:{font:{size:11}, color:'rgba(60,60,67,.62)', maxTicksLimit:8, autoSkip:true, maxRotation:0}};
+ticks:{font:{size:11}, color:ink, maxTicksLimit:8, autoSkip:true, maxRotation:0}};
 var o = {
 responsive: true,
 maintainAspectRatio: false,
@@ -568,7 +619,7 @@ interaction: {mode:'index', intersect:false},
 plugins: {
 legend: {display:false},
 tooltip: {
-backgroundColor:'rgba(0,0,0,.82)', padding:10, cornerRadius:8,
+backgroundColor:tip, padding:10, cornerRadius:8,
 titleFont:{size:12}, bodyFont:{size:12},
 callbacks: {
 label: function(ctx){
@@ -1067,7 +1118,7 @@ return c.label + '：' + money(c.parsed) +
 });
 } else {
 draw('c-ov-cat', {type:'doughnut',
-data:{labels:['本月还没有支出'], datasets:[{data:[1], backgroundColor:['#e5e7eb'], borderWidth:0}]},
+data:{labels:['本月还没有支出'], datasets:[{data:[1], backgroundColor:[cssv('--fill-hover','#e5e7eb')], borderWidth:0}]},
 options:{responsive:true, maintainAspectRatio:false, cutout:'68%',
 plugins:{legend:{display:false}, tooltip:{enabled:false}}}});
 }
@@ -1121,11 +1172,11 @@ borderWidth: 0
 },
 options: {responsive:true, maintainAspectRatio:false, cutout:'62%',
 plugins:{legend:{position:'right', labels:{boxWidth:10, boxHeight:10, font:{size:11},
-color:'rgba(60,60,67,.7)', padding:10}},
+color:cssv('--ink-soft','rgba(60,60,67,.7)'), padding:10}},
 tooltip:{callbacks:{label:function(c){ return c.label + '：' + money(c.parsed); }}}}}
 });
 } else {
-draw('c-ov-comp', {type:'doughnut', data:{labels:['暂无数据'], datasets:[{data:[1], backgroundColor:['#e5e7eb'], borderWidth:0}]},
+draw('c-ov-comp', {type:'doughnut', data:{labels:['暂无数据'], datasets:[{data:[1], backgroundColor:[cssv('--fill-hover','#e5e7eb')], borderWidth:0}]},
 options:{responsive:true, maintainAspectRatio:false, cutout:'62%', plugins:{legend:{display:false}, tooltip:{enabled:false}}}});
 }
 /* 净资产趋势 */
@@ -1137,7 +1188,7 @@ data: {
 labels: pts.map(function(p){ return p.date.slice(5); }),
 datasets: [{
 label: '净资产', data: pts.map(function(p){ return p.net; }),
-borderColor: '#0071e3', backgroundColor: 'rgba(0,113,227,.08)',
+borderColor: cssv('--primary','#0071e3'), backgroundColor: cssv('--primary-weak','rgba(0,113,227,.08)'),
 fill: true, tension: .3, pointRadius: 2, pointHoverRadius: 4, borderWidth: 2
 }]
 },
@@ -1148,7 +1199,7 @@ draw('c-ov-net', {type:'line', data:{labels:[], datasets:[]},
 options: Object.assign(baseOpts(), {scales:{x:{display:false}, y:{display:false}},
 plugins:{legend:{display:false}, tooltip:{enabled:false},
 title:{display:true, text:'记账满两天后这里会出现趋势线',
-color:'rgba(60,60,67,.45)', font:{size:12, weight:'400'}}}})});
+color:cssv('--ink-faint','rgba(60,60,67,.45)'), font:{size:12, weight:'400'}}}})});
 }
 /* 账户表：按 4 类角色分组；银行理财额外显示归属账户并按归属汇总 */
 function acctRow(a){
@@ -1329,11 +1380,11 @@ borderWidth: 0
 },
 options: {responsive:true, maintainAspectRatio:false, cutout:'62%',
 plugins:{legend:{position:'right', labels:{boxWidth:10, boxHeight:10, font:{size:11},
-color:'rgba(60,60,67,.7)', padding:10}},
+color:cssv('--ink-soft','rgba(60,60,67,.7)'), padding:10}},
 tooltip:{callbacks:{label:function(c){ return c.label + '：' + money(c.parsed); }}}}}
 });
 } else {
-draw('c-led-cat', {type:'doughnut', data:{labels:['暂无支出'], datasets:[{data:[1], backgroundColor:['#e5e7eb'], borderWidth:0}]},
+draw('c-led-cat', {type:'doughnut', data:{labels:['暂无支出'], datasets:[{data:[1], backgroundColor:[cssv('--fill-hover','#e5e7eb')], borderWidth:0}]},
 options:{responsive:true, maintainAspectRatio:false, cutout:'62%', plugins:{legend:{display:false}, tooltip:{enabled:false}}}});
 }
 /* 近 6 个月收支 */
@@ -1350,7 +1401,7 @@ datasets: [
 ]
 },
 options: baseOpts({plugins:{legend:{display:true, position:'top', align:'end',
-labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:'rgba(60,60,67,.7)'}}}})
+labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:cssv('--ink-soft','rgba(60,60,67,.7)')}}}})
 });
 /* 明细：先把筛选栏的下拉补齐，再渲染列表 */
 ledFillFilterSelects();
@@ -2081,7 +2132,7 @@ data: {
 labels: series.map(function(p){ return p.date.slice(5); }),
 datasets: [{
 label:'净资产', data: series.map(function(p){ return p.net; }),
-borderColor:'#0071e3', backgroundColor:'rgba(0,113,227,.08)',
+borderColor:cssv('--primary','#0071e3'), backgroundColor:cssv('--primary-weak','rgba(0,113,227,.08)'),
 fill:true, tension:.3, pointRadius:2, pointHoverRadius:4, borderWidth:2
 }]
 },
@@ -2091,7 +2142,7 @@ options: baseOpts({plugins:{legend:{display:false}}})
 draw('c-ana-net', {type:'line', data:{labels:[], datasets:[]},
 options: Object.assign(baseOpts(), {scales:{x:{display:false}, y:{display:false}},
 plugins:{legend:{display:false}, tooltip:{enabled:false},
-title:{display:true, text:'所选区间内还没有足够的数据点', color:'rgba(60,60,67,.45)', font:{size:12, weight:'400'}}}})});
+title:{display:true, text:'所选区间内还没有足够的数据点', color:cssv('--ink-faint','rgba(60,60,67,.45)'), font:{size:12, weight:'400'}}}})});
 }
 /* 近 30 天每日支出：与洞察区「近 30 天支出」同口径（含自动支出、排除报销与未来）。
 柱子看节奏，虚线是区间日均，一眼能看出哪几天超支。 */
@@ -2130,13 +2181,13 @@ pointRadius:0, pointHoverRadius:0, fill:false, order:1}
 ]
 },
 options: baseOpts({plugins:{legend:{display:true, position:'top', align:'end',
-labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:'rgba(60,60,67,.7)'}}}})
+labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:cssv('--ink-soft','rgba(60,60,67,.7)')}}}})
 });
 } else {
 draw('c-ana-daily', {type:'bar', data:{labels:[], datasets:[]},
 options: Object.assign(baseOpts(), {scales:{x:{display:false}, y:{display:false}},
 plugins:{legend:{display:false}, tooltip:{enabled:false},
-title:{display:true, text:'近 30 天还没有支出记录', color:'rgba(60,60,67,.45)',
+title:{display:true, text:'近 30 天还没有支出记录', color:cssv('--ink-faint','rgba(60,60,67,.45)'),
 font:{size:12, weight:'400'}}}})});
 }
 var months = lastMonths(6);
@@ -2156,8 +2207,8 @@ return g;
 }
 var expOpt = baseOpts({plugins:{
 legend:{display:true, position:'top', align:'end',
-labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:'rgba(60,60,67,.7)'}},
-tooltip:{backgroundColor:'rgba(0,0,0,.82)', padding:10, cornerRadius:8,
+labels:{boxWidth:8, boxHeight:8, font:{size:11}, color:cssv('--ink-soft','rgba(60,60,67,.7)')}},
+tooltip:{backgroundColor:cssv('--tooltip','rgba(0,0,0,.82)'), padding:10, cornerRadius:8,
 titleFont:{size:12}, bodyFont:{size:12},
 callbacks:{
 label:function(c){ return c.dataset.label + '：' + money(c.parsed.y); },
@@ -2209,6 +2260,10 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'73', date:'2026-11-23', items:[
+'新增深色主题：顶栏右上角点月亮图标切换，深墨底 + 玻璃面板，香槟金做主色',
+'浅色主题保持原样；切换过一次之后会自动记住，下次打开直接是那个主题'
+]},
 {v:'72', date:'2026-11-23', items:[
 '表单标签与输入框正确关联：读屏能念出每个框是填什么的，点标签也会直接聚焦',
 '每张图表补了文字说明，读屏不再把它当成一块空白跳过',
@@ -3784,9 +3839,9 @@ document.getElementById('led-month').value = thisMonth();
 setTxType('expense');
 if (typeof Chart !== 'undefined'){
 Chart.defaults.font.family = '-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif';
-Chart.defaults.color = 'rgba(60,60,67,.6)';
 Chart.defaults.font.size = 11;
 }
+applyTheme(currentTheme(), false);
 if (location.protocol === 'file:'){
 hideSplash();
 errBox.style.display = '';
