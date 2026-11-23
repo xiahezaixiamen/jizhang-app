@@ -141,6 +141,7 @@ return c.statTx;
 function updateReimbBar(){
 var box = document.getElementById('reimb-toggle');
 var info = document.getElementById('reimb-info');
+var bar = document.getElementById('reimb-bar');
 if (box) box.checked = excludeReimb;
 if (!info) return;
 var m = thisMonth(), n = 0, sum = 0;
@@ -148,8 +149,13 @@ allTx().forEach(function(t){
 if (t.reimbursable && t.type === 'expense' &&
 monthKey(t.date) === m && t.date <= today()){ n++; sum += t.amount; }
 });
-if (!n){ info.textContent = '本月暂无报销标记'; return; }
-info.textContent = '本月已标记 ' + n + ' 笔 ' + money(sum) +
+/* 没有可剔的就不占位置：开关开着时仍显示，好让用户能关掉 */
+if (bar) bar.style.display = (n || excludeReimb) ? '' : 'none';
+if (!n){
+info.textContent = excludeReimb ? '本月暂无报销标记 · 开关已开启' : '';
+return;
+}
+info.textContent = '本月 ' + n + ' 笔 ' + money(sum) +
 (excludeReimb ? ' · 已从统计中剔除' : ' · 当前全部计入统计');
 }
 var _cache = {db:null, txAll:null, statTx:null, balances:null, months:null, series:null, size:null};
@@ -2186,6 +2192,9 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'70', date:'2026-11-23', items:[
+'「剔除公司报销」挪到资产页「本月支出」卡片底部；本月没有报销标记时自动收起，不再占一行'
+]},
 {v:'69', date:'2026-11-19', items:[
 '修掉「更新市值」选历史日期时差额算错的问题：现在按那一天的实际余额算',
 '首页统计和规则页加载快一些，流水记多了以后更明显',
