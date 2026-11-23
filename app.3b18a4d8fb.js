@@ -404,7 +404,11 @@ var modalOK = null, modalReturn = null;
 function openModal(title, bodyHTML, onOK, okLabel, hideCancel, okClass){
 var mask = document.getElementById('modal-mask');
 document.getElementById('modal-title').textContent = title;
-document.getElementById('modal-body').innerHTML = bodyHTML;
+var box = document.getElementById('modal-body');
+box.innerHTML = bodyHTML;
+/* 正文容器是全站复用的：从滚到底的整月弹窗点进编辑时，
+不归零会让日期、金额落在可视区之外，看着像个空表单。 */
+box.scrollTop = 0;
 modalOK = onOK;
 /* 每次打开都是新的一层：清掉上一层的「关闭后返回」动作与单日弹窗标记。
 调用方若要「关闭后回到原弹窗」，在 openModal 之后再设置 modalReturn。 */
@@ -418,10 +422,13 @@ var cancel = document.getElementById('modal-cancel');
 if (cancel) cancel.style.display = hideCancel ? 'none' : '';
 hideUndo();
 mask.classList.add('show');
+/* 遮罩外的页面不再跟着滚：移动端到底后手指一划，弹窗还在、人已经跑别处了 */
+document.documentElement.classList.add('modal-open');
 }
 function closeModal(){
 var mask = document.getElementById('modal-mask');
 mask.classList.remove('show');
+document.documentElement.classList.remove('modal-open');
 delete mask.dataset.day;
 delete mask.dataset.month;
 modalOK = null;
@@ -2192,6 +2199,14 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'71', date:'2026-11-23', items:[
+'删账户时会一并删掉引用它的定投 / 固定支出规则，确认框里会先说明删几条',
+'修掉「未来才开始扣的月付规则改成每日后，当天就开始扣款」',
+'记完一笔报销后勾选自动复位，不会带到下一笔',
+'导入时账户缺失、转账不完整的记录会被丢弃，不再产生对不上账的流水',
+'弹窗打开时背后的页面不再跟着滚；从整月明细点进编辑，表单不会再被顶到看不见',
+'双击两次启动脚本不会再开出两个服务实例'
+]},
 {v:'70', date:'2026-11-23', items:[
 '「剔除公司报销」挪到资产页「本月支出」卡片底部；本月没有报销标记时自动收起，不再占一行'
 ]},
@@ -2443,7 +2458,7 @@ tabById(activeTab).render();
 var SAL_KEY = 'jz_salary_v1', SAL_TODAY_KEY = 'jz_salary_today_v1';
 var SAL_DEFAULT = {monthly:12000, daysMode:'auto', days:21.75,
 start:'09:00:00', end:'18:00:00', lunchStart:'12:00:00', lunchMin:60};
-var salCfg = null, salTimer = 0;
+var salCfg = null, salTimer = 0, salTodayCache = null;
 function salNum(v, lo, hi, def){
 var n = parseFloat(v);
 return isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def;
@@ -2488,13 +2503,22 @@ lunchMin: Math.round(salNum(c.lunchMin, 0, 480, SAL_DEFAULT.lunchMin))
 }
 function salSave(c){ lsSet(SAL_KEY, JSON.stringify(c)); }
 function salTodayMode(){
+/* 每秒钟都要问一次，而它的值一天内不会变：读一次 localStorage 就够，
+跨天（缓存日期对不上）再重读。 */
+var d = today();
+if (salTodayCache && salTodayCache.date === d) return salTodayCache.mode;
+var mode = 'auto';
 try {
 var v = JSON.parse(lsGet(SAL_TODAY_KEY) || 'null');
-if (v && v.date === today() && ['auto','work','off'].indexOf(v.mode) >= 0) return v.mode;
+if (v && v.date === d && ['auto','work','off'].indexOf(v.mode) >= 0) mode = v.mode;
 } catch(e){}
-return 'auto';
+salTodayCache = {date: d, mode: mode};
+return mode;
 }
-function salSetToday(mode){ lsSet(SAL_TODAY_KEY, JSON.stringify({date:today(), mode:mode})); }
+function salSetToday(mode){
+lsSet(SAL_TODAY_KEY, JSON.stringify({date:today(), mode:mode}));
+salTodayCache = {date: today(), mode: mode};
+}
 function salWorkdays(y, m){
 var n = 0, last = new Date(y, m, 0).getDate(), d = new Date(y, m - 1, 1);
 for (var i = 1; i <= last; i++){ d.setDate(i); if (d.getDay() >= 1 && d.getDay() <= 5) n++; }
@@ -2665,8 +2689,18 @@ salFillForm(salCfg, salTodayMode());
 salMetricsSkeleton();
 salStaticText();
 salPaint();
-salTimer = setInterval(salPaint, 200);
+salTimer = setInterval(salPaint, 1000);
 }
+/* 切到后台就停掉计时器：这块每秒重算并写十几个节点，挂着不动也在耗电；
+回到前台且还停在算薪页时再续上。 */
+document.addEventListener('visibilitychange', function(){
+if (document.hidden){
+stopSalary();
+} else if (activeTab === 'salary' && !salTimer){
+salPaint();
+salTimer = setInterval(salPaint, 1000);
+}
+});
 ;
 /* ================= 交互：记账 ================= */
 async function submitTx(ev){
@@ -2700,6 +2734,9 @@ var keepMonth = d.value.slice(0,7);
 document.getElementById('led-month').value = keepMonth;
 document.getElementById('tx-amount').value = '';
 document.getElementById('tx-note').value = '';
+/* 报销是「这一笔」的属性，不清掉就会带到下一笔：
+帮同事记完报销再记自己的咖啡，咖啡也被算作报销而从统计里剔除。 */
+document.getElementById('tx-reimb').checked = false;
 await reload();
 document.getElementById('tx-amount').focus();
 } catch(e){
@@ -3386,6 +3423,13 @@ var a = accountById(id); if (!a) return;
 var txs = db.transactions.filter(function(t){
 return t.accountId === id || t.toAccountId === id;
 });
+/* 引用它的规则会被一并删掉（后端同事务清理），这里先说清楚，别让配置无声消失 */
+var ruleN = 0;
+if (db.dca.some(function(v){ return v.fromId === id || v.toId === id; })) ruleN++;
+var seenRule = {};
+db.fixed.forEach(function(f){
+if (f.accountId === id && !seenRule[f.ruleId]){ seenRule[f.ruleId] = 1; ruleN++; }
+});
 var body;
 if (!txs.length){
 body = '<div class="muted">这个账户还没有任何流水记录，删除后不影响其他账户。</div>';
@@ -3403,10 +3447,13 @@ body = '<div class="muted">删除「' + esc(a.name) + '」会一并删除：</di
 if (exp || inc){
 body += '<div class="muted">累计支出 ' + money(exp) + '，累计收入 ' + money(inc) + '</div>';
 }
+}
+if (ruleN){
+body += '<div class="muted">引用它的定投 / 固定支出规则 ' + ruleN + ' 条也会一并删除。</div>';
+}
 body += '<div class="note">此操作不可撤销。建议先导出一份备份再删。</div>' +
 '<button class="btn btn-sm" type="button" style="align-self:flex-start" ' +
 'onclick="exportJSON()">先导出备份</button>';
-}
 openModal('删除账户', body, async function(){
 try {
 await api('/api/accounts/' + id, {method:'DELETE'});
