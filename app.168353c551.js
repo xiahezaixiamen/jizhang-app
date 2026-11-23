@@ -47,6 +47,33 @@ return db.autoTx.filter(function(t){ return t.autoKind === kind; });
 var EX_CATS = ['餐饮','交通','购物','居住','娱乐','医疗','教育','通讯','人情','其他'];
 var IN_CATS = ['工资','奖金','投资收益','红包','报销','其他'];
 var CAT_COLORS = ['#0071e3','#ff9500','#ff3b30','#30b0c7','#5856d6','#af52de','#ff2d55','#34c759','#ffcc00','#8e8e93'];
+var TYPE_COLORS_DARK = {
+deposit:'#5f8fb8', bank:'#468f68', bankwealth:'#b09a5c', fixed:'#4d8a96',
+stock:'#b2625c', fund:'#b3814f', other:'#74719e', liability:'#9068a8'
+};
+var CAT_COLORS_DARK = ['#5f8fb8','#b3814f','#b2625c','#4d8a96','#74719e','#9068a8',
+'#b0668a','#468f68','#b09a5c','#8a92a0'];
+function typeColor(t){
+var m = TYPE_META[t] || TYPE_META.other;
+return isDarkTheme() ? (TYPE_COLORS_DARK[t] || m.color) : m.color;
+}
+function catColor(cat){
+var i = EX_CATS.indexOf(cat);
+if (i < 0) i = EX_CATS.length - 1;
+return isDarkTheme() ? CAT_COLORS_DARK[i] : CAT_COLORS[i];
+}
+function lineFill(){
+return function(ctx){
+var chart = ctx.chart, area = chart.chartArea, c = chart.ctx;
+var top = cssv('--primary-weak', 'rgba(0,102,204,.18)');
+if (!area || !c) return top;
+var g = c.createLinearGradient(0, area.top, 0, area.bottom);
+g.addColorStop(0, top);
+g.addColorStop(0.55, 'rgba(0,0,0,0)');
+g.addColorStop(1, 'rgba(0,0,0,0)');
+return g;
+};
+}
 var LS_KEY = 'pfa_data_v1';
 var privacyOn = true;
 var PRIVACY_MASK = '••••';
@@ -1105,8 +1132,8 @@ data: {
 labels: cats,
 datasets: [{
 data: cats.map(function(c){ return Math.round(m.byCat[c]*100)/100; }),
-backgroundColor: cats.map(function(c){ return CAT_COLORS[EX_CATS.indexOf(c)] || '#8e8e93'; }),
-borderWidth: 0
+backgroundColor: cats.map(function(c){ return catColor(c); }),
+borderWidth: 0, spacing: 2
 }]
 },
 options: {responsive:true, maintainAspectRatio:false, cutout:'68%',
@@ -1166,8 +1193,8 @@ data: {
 labels: keys.map(function(k){ return TYPE_META[k].label; }),
 datasets: [{
 data: keys.map(function(k){ return Math.round(byType[k]*100)/100; }),
-backgroundColor: keys.map(function(k){ return TYPE_META[k].color; }),
-borderWidth: 0
+backgroundColor: keys.map(function(k){ return typeColor(k); }),
+borderWidth: 0, spacing: 2
 }]
 },
 options: {responsive:true, maintainAspectRatio:false, cutout:'62%',
@@ -1188,8 +1215,8 @@ data: {
 labels: pts.map(function(p){ return p.date.slice(5); }),
 datasets: [{
 label: '净资产', data: pts.map(function(p){ return p.net; }),
-borderColor: cssv('--primary','#0071e3'), backgroundColor: cssv('--primary-weak','rgba(0,113,227,.08)'),
-fill: true, tension: .3, pointRadius: 2, pointHoverRadius: 4, borderWidth: 2
+borderColor: cssv('--primary','#0071e3'), backgroundColor: lineFill(),
+fill: !isDarkTheme(), tension: .3, pointRadius: 2, pointHoverRadius: 4, borderWidth: 2
 }]
 },
 options: baseOpts({plugins:{legend:{display:false}}})
@@ -1374,8 +1401,8 @@ data: {
 labels: cats,
 datasets: [{
 data: cats.map(function(c){ return Math.round(m.byCat[c]*100)/100; }),
-backgroundColor: cats.map(function(c){ return CAT_COLORS[EX_CATS.indexOf(c)] || '#8e8e93'; }),
-borderWidth: 0
+backgroundColor: cats.map(function(c){ return catColor(c); }),
+borderWidth: 0, spacing: 2
 }]
 },
 options: {responsive:true, maintainAspectRatio:false, cutout:'62%',
@@ -1396,8 +1423,8 @@ type: 'bar',
 data: {
 labels: months.map(function(mm){ return mm.slice(5) + '月'; }),
 datasets: [
-{label:'支出', data: exps, backgroundColor:'#ff3b30', maxBarThickness:18, borderRadius:4},
-{label:'收入', data: incs, backgroundColor:'#34c759', maxBarThickness:18, borderRadius:4}
+{label:'支出', data: exps, backgroundColor:cssv('--red','#ff3b30'), maxBarThickness:18, borderRadius:4},
+{label:'收入', data: incs, backgroundColor:cssv('--green','#34c759'), maxBarThickness:18, borderRadius:4}
 ]
 },
 options: baseOpts({plugins:{legend:{display:true, position:'top', align:'end',
@@ -2132,8 +2159,8 @@ data: {
 labels: series.map(function(p){ return p.date.slice(5); }),
 datasets: [{
 label:'净资产', data: series.map(function(p){ return p.net; }),
-borderColor:cssv('--primary','#0071e3'), backgroundColor:cssv('--primary-weak','rgba(0,113,227,.08)'),
-fill:true, tension:.3, pointRadius:2, pointHoverRadius:4, borderWidth:2
+borderColor:cssv('--primary','#0071e3'), backgroundColor:lineFill(),
+fill:!isDarkTheme(), tension:.3, pointRadius:2, pointHoverRadius:4, borderWidth:2
 }]
 },
 options: baseOpts({plugins:{legend:{display:false}}})
@@ -2226,11 +2253,11 @@ type: 'line',
 data: {
 labels: months.map(function(mm){ return mm.slice(5) + '月'; }),
 datasets: [
-{label:'收入', data: incs, borderColor:'#34c759', borderWidth:2,
-tension:.35, pointRadius:2, pointHoverRadius:4, fill:true,
+{label:'收入', data: incs, borderColor:cssv('--green','#34c759'), borderWidth:2,
+tension:.35, pointRadius:2, pointHoverRadius:4, fill:!isDarkTheme(),
 backgroundColor: areaGrad('52,199,89')},
-{label:'支出', data: exps, borderColor:'#ff3b30', borderWidth:2,
-tension:.35, pointRadius:2, pointHoverRadius:4, fill:true,
+{label:'支出', data: exps, borderColor:cssv('--red','#ff3b30'), borderWidth:2,
+tension:.35, pointRadius:2, pointHoverRadius:4, fill:!isDarkTheme(),
 backgroundColor: areaGrad('255,59,48')}
 ]
 },
@@ -2260,6 +2287,10 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'75', date:'2026-11-23', items:[
+'深色主题下的图表重新配色：不再是刺眼的亮绿亮蓝，改为沉静的一套',
+'折线图去掉了整片面积填充，图表区域有了自己均匀的深色底，和玻璃卡片不再打架'
+]},
 {v:'74', date:'2026-11-23', items:[
 '深色主题补上动效：鼠标移到卡片上会轻轻浮起，切换主题时颜色平滑过渡不再硬切',
 '主按钮的光晕跟着主题走，深色下是香槟金'
