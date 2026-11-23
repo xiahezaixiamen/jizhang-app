@@ -400,9 +400,12 @@ var el = document.getElementById('boot-splash');
 if (el && el.parentNode) el.parentNode.removeChild(el);
 }
 /* ================= 表单弹窗 ================= */
-var modalOK = null, modalReturn = null;
+var modalOK = null, modalReturn = null, modalFocus = null;
 function openModal(title, bodyHTML, onOK, okLabel, hideCancel, okClass){
 var mask = document.getElementById('modal-mask');
+/* 只在最外层记录来源焦点：从整月明细点进编辑时不会再覆盖它，
+最终关闭时才能回到当初点开的那个按钮。 */
+if (!modalFocus) modalFocus = document.activeElement;
 document.getElementById('modal-title').textContent = title;
 var box = document.getElementById('modal-body');
 box.innerHTML = bodyHTML;
@@ -424,6 +427,9 @@ hideUndo();
 mask.classList.add('show');
 /* 遮罩外的页面不再跟着滚：移动端到底后手指一划，弹窗还在、人已经跑别处了 */
 document.documentElement.classList.add('modal-open');
+/* 焦点移进弹窗，读屏才会朗读 role="dialog" 与标题（aria-labelledby） */
+var dlg = mask.querySelector ? mask.querySelector('.modal') : null;
+if (dlg && dlg.focus) dlg.focus();
 }
 function closeModal(){
 var mask = document.getElementById('modal-mask');
@@ -436,7 +442,11 @@ modalOK = null;
 且只用一次，避免第二次关闭时又弹回来。 */
 var back = modalReturn;
 modalReturn = null;
-if (back) back();
+if (back){ back(); return; }
+/* 焦点还给打开它的那个按钮：键盘用户关掉弹窗后不会掉到页面顶部 */
+var prev = modalFocus;
+modalFocus = null;
+if (prev && prev.focus) prev.focus();
 }
 document.getElementById('modal-ok').addEventListener('click', async function(){
 if (!modalOK) return;
@@ -1456,7 +1466,7 @@ return '<div class="list-item' + (editable ? ' is-editable' : '') + '"' +
 (editable ? ' role="button" tabindex="0" data-act="tx-edit" data-id="' + esc(t.id) + '"' : '') + '>' +
 '<span class="grow"><span title="' + esc(plain) + '">' + esc(plain) + '</span>' +
 (t.reimbursable
-? '<span class="tag" style="margin-left:6px;background:var(--primary-weak);color:var(--primary)">报销</span>'
+? '<span class="tag tag-wait" style="margin-left:6px">报销</span>'
 : '') + '</span>' +
 '<span class="amt ' + (t.type === 'expense' ? 'neg' : (t.type === 'income' ? 'pos' : 'muted')) + '">' +
 (t.type === 'transfer' ? money(t.amount) : sign + num(t.amount)) + '</span>' +
@@ -2199,6 +2209,11 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'72', date:'2026-11-23', items:[
+'表单标签与输入框正确关联：读屏能念出每个框是填什么的，点标签也会直接聚焦',
+'每张图表补了文字说明，读屏不再把它当成一块空白跳过',
+'弹窗打开时焦点自动进入，关闭后回到刚才那个按钮，键盘操作不会「丢位置」'
+]},
 {v:'71', date:'2026-11-23', items:[
 '删账户时会一并删掉引用它的定投 / 固定支出规则，确认框里会先说明删几条',
 '修掉「未来才开始扣的月付规则改成每日后，当天就开始扣款」',
@@ -2858,7 +2873,7 @@ body += '<div class="field"><label>金额 (¥)</label>' +
 }
 body += '<div class="field"><label>备注 (可选)</label>' +
 '<input id="et-note" type="text" inputmode="text" maxlength="60" value="' + esc(t.note) + '"></div>' +
-'<span class="muted" style="font-size:11.5px">改完余额立即重算；记录类型不可更改。</span>';
+'<span class="muted small">改完余额立即重算；记录类型不可更改。</span>';
 var titles = {expense: '编辑支出', income: '编辑收入',
 transfer: '编辑转账', adjust: '编辑余额调整'};
 openModal(titles[t.type] || '编辑记录', body, async function(){
@@ -2926,10 +2941,10 @@ return;
 var from = accountById(c.fromId), to = accountById(c.toId);
 var invalid = !from || !to;
 var tag = !c.enabled
-? '<span class="tag" style="background:var(--fill);color:var(--muted)">已暂停</span>'
+? '<span class="tag tag-off">已暂停</span>'
 : invalid
-? '<span class="tag" style="background:var(--red-weak);color:var(--red)">账户失效</span>'
-: '<span class="tag" style="background:rgba(52,199,89,.14);color:#248a3d">运行中</span>';
+? '<span class="tag tag-bad">账户失效</span>'
+: '<span class="tag tag-ok">运行中</span>';
 var line1 = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
 '<span style="font-size:17px;font-weight:600;font-variant-numeric:tabular-nums">' + money(c.amount) + '</span>' +
 '<span class="muted">/ ' + (c.weekdaysOnly ? '工作日' : '每天') + '</span>' +
@@ -2979,7 +2994,7 @@ var body =
 '<div class="field"><label>起始日' + (isFirst ? '' : '（已生效，不可修改）') + '</label>' +
 '<input type="date" id="dca-start" value="' + (isFirst ? today() : db.dca[0].effectiveFrom) + '"' +
 (isFirst ? '' : ' disabled') + '></div>' +
-'<span class="muted" style="font-size:11.5px;line-height:1.7">' +
+'<span class="muted small" style="line-height:1.7">' +
 (isFirst
 ? '起始日之前不会补算。填过去的日期，表示你确认那些天确实扣过款，系统会一次性补齐到今天。'
 : '本次修改从今天起生效，之前的金额保持不变；当天只按新金额结算一次，不会重复扣。') +
@@ -3093,19 +3108,19 @@ var c = r.current, s = statsMap[r.ruleId];
 var acc = accountById(c.accountId), invalid = !acc;
 var future = !!(c.monthlyDay && r.start > today());
 var tag = future
-? '<span class="tag" style="background:var(--primary-weak);color:var(--primary)">待首次扣款</span>'
+? '<span class="tag tag-wait">待首次扣款</span>'
 : !c.enabled
-? '<span class="tag" style="background:#fff;color:var(--muted)">已停用</span>'
+? '<span class="tag tag-off">已停用</span>'
 : invalid
-? '<span class="tag" style="background:var(--red-weak);color:var(--red)">账户失效</span>'
-: '<span class="tag" style="background:rgba(52,199,89,.14);color:#248a3d">运行中</span>';
+? '<span class="tag tag-bad">账户失效</span>'
+: '<span class="tag tag-ok">运行中</span>';
 var freq = c.monthlyDay ? '每月 ' + c.monthlyDay + ' 号'
 : (c.weekdaysOnly ? '每个工作日' : '每天');
 var top = '<div class="fx-top">' +
 '<span class="fx-amt">' + money(c.amount) + '</span>' +
 '<span class="muted">/ ' + freq + '</span>' + tag +
 (c.reimbursable
-? '<span class="tag" style="background:var(--primary-weak);color:var(--primary)">报销</span>'
+? '<span class="tag tag-wait">报销</span>'
 : '') + '</div>';
 var meta = '<div class="fx-meta">' + esc(c.category) + ' · ' +
 esc(acc ? acc.name : '账户已删除') + '<br>' +
@@ -3208,7 +3223,7 @@ return '<option value="' + esc(a.id) + '"' + (a.id === aid ? ' selected' : '') +
 '<option value="weekday"' + (calVal === 'weekday' ? ' selected' : '') + '>仅工作日（周一至周五）</option>' +
 '<option value="monthly"' + (calVal === 'monthly' ? ' selected' : '') + '>每月固定日（如房租）</option>' +
 '</select></div>' +
-(isNew ? '' : '<span class="muted" style="font-size:11.5px;line-height:1.7">扣款周期已生效，如需更换请删除这条规则后重新添加。</span>') +
+(isNew ? '' : '<span class="muted small" style="line-height:1.7">扣款周期已生效，如需更换请删除这条规则后重新添加。</span>') +
 '<div class="field"><label>状态</label><select id="fx-on">' +
 '<option value="on"' + (!c || c.enabled ? ' selected' : '') + '>启用</option>' +
 '<option value="off"' + (c && !c.enabled ? ' selected' : '') + '>停用</option></select></div>' +
@@ -3304,7 +3319,7 @@ openModal('添加账户',
 '<select id="ac-type">' + typeOptions('deposit') + '</select></div>' +
 '<div class="field"><label>当前余额 (¥)</label>' +
 '<input type="number" id="ac-balance" step="0.01" inputmode="decimal" value="0" placeholder="0.00">' +
-'<span class="muted" style="font-size:11.5px">填今天的真实余额，作为建账起点。负债填正数（欠多少）。日常类的账户会作为记账时的默认扣款来源。</span></div>' +
+'<span class="muted small">填今天的真实余额，作为建账起点。负债填正数（欠多少）。日常类的账户会作为记账时的默认扣款来源。</span></div>' +
 '<div class="field"><label>余额日期</label>' +
 '<input type="date" id="ac-date" value="' + today() + '"></div>' +
 '<div class="field"><label>备注 (可选)</label><input id="ac-note" maxlength="60"></div>',
@@ -3338,7 +3353,7 @@ openModal('编辑账户 · ' + a.name,
 '<input type="date" id="ed-date" value="' + esc(a.initial_date || today()) + '"></div>' +
 '<div class="field"><label>备注 (可选)</label>' +
 '<input id="ed-note" maxlength="60" value="' + esc(a.note) + '"></div>' +
-'<span class="muted" style="font-size:11.5px;line-height:1.7">' +
+'<span class="muted small" style="line-height:1.7">' +
 '活期与银行卡是两个独立分类，各自单独核算；银行理财单独汇总，不并入任何可用余额。</span>',
 async function(){
 var name = document.getElementById('ed-name').value.trim();
@@ -3373,7 +3388,7 @@ openModal('更新余额 · ' + a.name,
 (privacyOn ? '' : bal.toFixed(2)) + '"' +
 (privacyOn ? ' placeholder="请输入实际金额（当前金额已隐藏）"' : '') + '></div>' +
 '<div class="field"><label>日期</label><input type="date" id="rv-date" max="' + today() + '" value="' + today() + '"></div>' +
-'<span class="muted" style="font-size:11.5px">' +
+'<span class="muted small">' +
 (isCash
 ? '只需在余额对不上时用（比如漏记了一笔）。系统会把差额记成「余额调整」，不影响收支统计。'
 : '股票、基金这类账户，市值不由收支决定，每月填一次最新市值即可，差额会记为盈亏。') +
@@ -3403,7 +3418,7 @@ openModal('账户间转账',
 '<div class="field"><label>金额 (¥)</label><input type="number" id="tr-amt" step="0.01" min="0.01" inputmode="decimal" required></div>' +
 '<div class="field"><label>日期</label><input type="date" id="tr-date" value="' + today() + '"></div>' +
 '<div class="field"><label>备注 (可选)</label><input id="tr-note" maxlength="60"></div>' +
-'<span class="muted" style="font-size:11.5px">转账不算收入也不算支出，只改变两个账户的余额。</span>',
+'<span class="muted small">转账不算收入也不算支出，只改变两个账户的余额。</span>',
 async function(){
 var amt = +document.getElementById('tr-amt').value;
 if (!(amt > 0)){ alert('请填写有效金额'); return false; }
