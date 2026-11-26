@@ -1658,7 +1658,9 @@ esc(plain) + '</span>' +
 符号在这里是重复噪音，还会把 9.5px 的小字挤窄。 */
 function ledCalAmt(v){
 if (privacyOn) return PRIVACY_MASK;
-return Math.abs(v).toFixed(2);
+var a = Math.abs(v);
+if (a >= 10000) return (Math.round(a / 1000) / 10).toFixed(1) + '万';
+return a.toFixed(2);
 }
 function ledDateCn(iso){
 return (+String(iso).slice(5, 7)) + '月' + (+String(iso).slice(8, 10)) + '日';
@@ -2383,6 +2385,10 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'89', date:'2026-11-26', items:[
+'移动端细节修复：修复「每日定投」紧凑卡片标题与按钮被挤成竖排；图表容器防止跨卡片溢出',
+'明细筛选「金额区间」手机端独占一行，日历 ≥1 万金额自动简写防贴边；优化账户抽屉关闭按钮与底栏通透度'
+]},
 {v:'88', date:'2026-11-26', items:[
 '移动端视觉精修：隐藏快速记账卡片内与右下角「＋」重叠的重复按钮；报销剔除改为原生 iOS 拨动开关',
 '去掉环形图图例重复的小圆点；首屏支出构成区增加细分隔线；底部标签栏升级为毛玻璃通透质感'
@@ -3716,7 +3722,7 @@ var body =
 '<button type="button" class="act-btn danger" data-act="acct-delete" data-id="' + esc(a.id) + '">' +
 '<span>删除账户<br><small>连同关联流水与规则一并清理</small></span><span>›</span></button>' +
 '</div>';
-openModal(a.name, body, function(){ return true; }, '关闭', true);
+openModal(a.name, body, function(){ return true; }, '关闭', true, 'btn');
 }
 async function delAccount(id){
 var a = accountById(id); if (!a) return;
