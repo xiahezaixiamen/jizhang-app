@@ -2383,6 +2383,9 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'85', date:'2026-11-26', items:[
+'微动效升级：手机端底部抽屉改为从屏底完整滑出、关闭时顺滑收回；确认弹窗增加轻弹性缩放过渡；底部标签栏切换更跟手'
+]},
 {v:'84', date:'2026-11-26', items:[
 '修复手机端点击账户卡片或弹出底部抽屉时，弹窗先向上多顶一段再回缩抖动的问题'
 ]},
@@ -4773,14 +4776,9 @@ function end(){
 if (!drag) return;
 drag = false;
 var m = box;
-m.style.transition = 'transform .2s ease';
-if (dy > 90){
-m.style.transform = 'translateY(100%)';
-setTimeout(function(){ m.style.transform = ''; m.style.transition = ''; closeModal(); }, 180);
-} else {
+m.style.transition = '';
 m.style.transform = '';
-setTimeout(function(){ m.style.transition = ''; }, 220);
-}
+if (dy > 90) closeModal();
 }
 mask.addEventListener('touchend', end);
 mask.addEventListener('touchcancel', end);
