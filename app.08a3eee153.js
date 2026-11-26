@@ -2383,6 +2383,9 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'86', date:'2026-11-26', items:[
+'补齐细节微动效：快速记一笔延迟防滚动聚焦，不再与抽屉动画冲突；悬浮「＋」按钮、折叠面板、页签切换与分类点选过渡更顺滑'
+]},
 {v:'85', date:'2026-11-26', items:[
 '微动效升级：手机端底部抽屉改为从屏底完整滑出、关闭时顺滑收回；确认弹窗增加轻弹性缩放过渡；底部标签栏切换更跟手'
 ]},
@@ -2980,7 +2983,8 @@ document.getElementById('tx-note').value = '';
 帮同事记完报销再记自己的咖啡，咖啡也被算作报销而从统计里剔除。 */
 document.getElementById('tx-reimb').checked = false;
 await reload();
-document.getElementById('tx-amount').focus();
+var amEl = document.getElementById('tx-amount');
+if (amEl && amEl.focus){ try { amEl.focus({preventScroll:true}); } catch(e){ amEl.focus(); } }
 } catch(e){
 alert.error(e.message);
 } finally {
@@ -4396,8 +4400,11 @@ pv.textContent = isFinite(v) && v > 0 ? '= ¥' + v.toFixed(2) : '';
 }
 setTimeout(function(){
 var a = document.getElementById('qk-amt');
-if (a && a.focus){ a.focus(); if (a.select) a.select(); }
-}, 80);
+if (a && a.focus){
+try { a.focus({preventScroll:true}); } catch(e){ a.focus(); }
+if (a.select) a.select();
+}
+}, 260);
 var amtEl = document.getElementById('qk-amt');
 if (amtEl && amtEl.addEventListener){
 amtEl.addEventListener('input', syncPreview);
@@ -4418,7 +4425,7 @@ var op = b.getAttribute('data-op');
 var cur = String(amtEl.value || '');
 amtEl.value = /[+\-−×÷*/]$/.test(cur) ? cur.slice(0, -1) + op : cur + op;
 syncPreview();
-if (amtEl.focus) amtEl.focus();
+if (amtEl.focus){ try { amtEl.focus({preventScroll:true}); } catch(e){ amtEl.focus(); } }
 });
 }
 var grid = document.getElementById('qk-cat-grid');
