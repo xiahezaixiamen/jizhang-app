@@ -473,7 +473,7 @@ document.getElementById('alert-mask').classList.add('show');
 alertOpen = true;
 setTimeout(function(){
 var box = document.querySelector('#alert-mask .alert-box');
-if (box) box.focus();
+if (box && box.focus){ try { box.focus({preventScroll:true}); } catch(e){ box.focus(); } }
 }, 30);
 }
 function closeAlert(result){
@@ -482,7 +482,7 @@ alertOpen = false;
 document.getElementById('alert-mask').classList.remove('show');
 var res = alertResolve; alertResolve = null;
 var prev = alertLastFocus; alertLastFocus = null;
-if (prev && prev.focus){ try { prev.focus(); } catch(e){} }
+if (prev && prev.focus){ try { prev.focus({preventScroll:true}); } catch(e){ try { prev.focus(); } catch(_){} } }
 if (res) res(!!result);
 }
 /* 异步确认框：替代浏览器原生 window.confirm，适配全屏 PWA 与深色玻璃主题。
@@ -562,9 +562,10 @@ hideUndo();
 mask.classList.add('show');
 /* 遮罩外的页面不再跟着滚：移动端到底后手指一划，弹窗还在、人已经跑别处了 */
 document.documentElement.classList.add('modal-open');
-/* 焦点移进弹窗，读屏才会朗读 role="dialog" 与标题（aria-labelledby） */
+/* 焦点移进弹窗，读屏才会朗读 role="dialog" 与标题（aria-labelledby）；
+必须带 preventScroll，否则移动端底部抽屉入场时会被浏览器往上顶一段再回弹 */
 var dlg = mask.querySelector ? mask.querySelector('.modal') : null;
-if (dlg && dlg.focus) dlg.focus();
+if (dlg && dlg.focus){ try { dlg.focus({preventScroll:true}); } catch(e){ dlg.focus(); } }
 }
 function setModalDelete(label, onDel){
 modalDel = onDel;
@@ -591,7 +592,7 @@ if (back){ back(); return; }
 /* 焦点还给打开它的那个按钮：键盘用户关掉弹窗后不会掉到页面顶部 */
 var prev = modalFocus;
 modalFocus = null;
-if (prev && prev.focus) prev.focus();
+if (prev && prev.focus){ try { prev.focus({preventScroll:true}); } catch(e){ prev.focus(); } }
 }
 (function(){
 var delBtn = document.getElementById('modal-del');
@@ -2382,6 +2383,9 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'84', date:'2026-11-26', items:[
+'修复手机端点击账户卡片或弹出底部抽屉时，弹窗先向上多顶一段再回缩抖动的问题'
+]},
 {v:'83', date:'2026-11-26', items:[
 '总览与账户视觉减负：未启用的月度预算与每日定投自动收成单行紧凑条；手机端账户卡收起底部按钮排，点卡片弹出操作菜单',
 '明细行防误触：去掉每行末尾的「删」按钮，手动记录点进编辑弹窗可删除并支持撤销，自动记录点击弹窗确认排除当天',
