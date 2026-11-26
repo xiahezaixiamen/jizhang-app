@@ -2383,6 +2383,10 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'88', date:'2026-11-26', items:[
+'移动端视觉精修：隐藏快速记账卡片内与右下角「＋」重叠的重复按钮；报销剔除改为原生 iOS 拨动开关',
+'去掉环形图图例重复的小圆点；首屏支出构成区增加细分隔线；底部标签栏升级为毛玻璃通透质感'
+]},
 {v:'87', date:'2026-11-26', items:[
 '修复总览「本月支出 / 本月结余」数字被样式误伤变小变灰、导致绿色「+」号错位突兀的问题'
 ]},
@@ -4598,7 +4602,7 @@ if (!box) return;
 if (!OV_CATS.length || OV_TOTAL <= 0 || privacyOn){ box.innerHTML = ''; return; }
 box.innerHTML = OV_CATS.slice(0, 5).map(function(c, i){
 return '<button type="button" class="ov-lg' + (i === ovPick ? ' on' : '') + '" data-act="ov-pick" data-id="' + i + '">' +
-'<i style="background:' + catColor(c) + '"></i>' + catIcon(c) + esc(c) + ' ' +
+catIcon(c) + esc(c) + ' ' +
 Math.round(m.byCat[c] / OV_TOTAL * 100) + '%</button>';
 }).join('');
 }
