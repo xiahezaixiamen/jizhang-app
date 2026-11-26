@@ -368,8 +368,10 @@
   }
 
   function deleteAccount(aid) {
-    return Promise.all([readAll('transactions'), readAll('accounts')]).then(function (r) {
-      var txs = r[0], accounts = r[1];
+    return Promise.all([
+      readAll('transactions'), readAll('accounts'), readAll('dca'), readAll('fixed'), readAll('skips')
+    ]).then(function (r) {
+      var txs = r[0], accounts = r[1], dca = r[2], fixed = r[3], skips = r[4];
       if (!accounts.some(function (a) { return a.id === aid; })) throw new Error('账户不存在');
       var ops = [];
       txs.forEach(function (t) {
@@ -379,6 +381,22 @@
         if (a.parentAccountId === aid) {
           ops.push({ op: 'put', store: 'accounts', value: Object.assign({}, a, { parentAccountId: '' }) });
         }
+      });
+      /* 定投只有一条版本链：任一版本引用了该账户，整条链连同排除记录一起删 */
+      if (dca.some(function (v) { return v.fromId === aid || v.toId === aid; })) {
+        dca.forEach(function (v) { ops.push({ op: 'del', store: 'dca', key: v.id }); });
+        skips.forEach(function (s) {
+          if ((s.ruleId || 'default') === 'dca') ops.push({ op: 'del', store: 'skips', key: s.k });
+        });
+      }
+      /* 固定支出按规则：哪条规则引用了该账户就整条删，避免留下悬空配置 */
+      var dead = {};
+      fixed.forEach(function (v) { if (v.accountId === aid) dead[v.ruleId || 'default'] = 1; });
+      fixed.forEach(function (v) {
+        if (dead[v.ruleId || 'default']) ops.push({ op: 'del', store: 'fixed', key: v.id });
+      });
+      skips.forEach(function (s) {
+        if (dead[s.ruleId || 'default']) ops.push({ op: 'del', store: 'skips', key: s.k });
       });
       ops.push({ op: 'del', store: 'accounts', key: aid });
       return write(ops).then(function () { return { ok: true }; });
@@ -690,28 +708,40 @@
     ]).then(function () { seq = 0; return { ok: true }; });
   }
 
-  /* 导入：与 replace_all 同语义——整体替换，不是合并 */
+  /* 金额归一：非有限数、超上限一律视为无效（NaN），避免 Infinity/NaN 污染余额与图表 */
+  function safeMoney(v) {
+    var n = Number(v == null || v === '' ? 0 : v);
+    if (!isFinite(n) || Math.abs(n) > MAX_AMOUNT) return NaN;
+    return Math.round(n * 100) / 100;
+  }
+
+  /* 导入：与 replace_all 同语义——整体替换，不是合并。
+   * 清空与写入放在同一个事务里：中途任何一步失败，整个事务回滚，原数据原样保留。 */
   function replaceAll(d) {
     d = d || {};
-    var accounts = d.accounts || [];
-    var txs = d.transactions || [];
+    var accounts = Array.isArray(d.accounts) ? d.accounts : [];
+    var txs = Array.isArray(d.transactions) ? d.transactions : [];
     var ids = {};
     var accOps = [];
+    var order = 0;
 
     accounts.forEach(function (a) {
+      if (!a || typeof a !== 'object') return;
       var oldId = clip(a.id, 40);
       var aid = oldId || newId();
       if (ids[aid]) aid = newId();
       ids[aid] = 1;
       var typ = normalizeType(a.type);
       if (!ACCOUNT_TYPES[typ]) typ = 'other';
-      var bal = Number(a.initial_balance || 0);
-      if (!isFinite(bal)) bal = 0;
+      var bal = safeMoney(a.initial_balance);
+      if (bal !== bal) bal = 0;
+      var idate = '';
+      try { idate = a.initial_date ? checkDate(a.initial_date) : ''; } catch (e) { idate = ''; }
       accOps.push({
         op: 'put', store: 'accounts', value: {
           id: aid, name: clip(a.name, 50) || '未命名账户', type: typ,
-          initial_balance: Math.round(bal * 100) / 100, initial_date: a.initial_date || '',
-          note: clip(a.note, 100), parentAccountId: '', _seq: nextSeq(),
+          initial_balance: bal, initial_date: idate,
+          note: clip(a.note, 100), parentAccountId: '', _seq: ++order,
           created_at: new Date().toISOString()
         }
       });
@@ -719,12 +749,18 @@
 
     var txOps = [];
     txs.forEach(function (t) {
-      if (!TX_TYPES[t.type]) return;
+      if (!t || typeof t !== 'object' || !TX_TYPES[t.type]) return;
       var aid = t.accountId || t.account_id || '';
       var toAid = t.toAccountId || t.to_account_id || '';
-      if (aid && !ids[aid]) return;
-      if (toAid && !ids[toAid]) toAid = '';
-      var amt = Math.round(Number(t.amount || 0) * 100) / 100;
+      /* 四种类型都必须挂在存在的账户上，否则成了「找不到主人」的钱 */
+      if (!aid || !ids[aid]) return;
+      if (t.type === 'transfer') {
+        if (!toAid || !ids[toAid] || toAid === aid) return;
+      } else {
+        toAid = '';
+      }
+      var amt = safeMoney(t.amount);
+      if (amt !== amt) return;
       var date;
       try { date = checkDate(t.date); } catch (e) { return; }
       if (t.type === 'adjust') { if (Math.abs(amt) < 0.005) return; }
@@ -735,17 +771,18 @@
           toAccountId: toAid, category: clip(t.category, 20), amount: amt,
           note: clip(t.note, 60),
           reimbursable: (t.type === 'expense' || t.type === 'income') && !!t.reimbursable,
-          _seq: nextSeq(), created_at: new Date().toISOString()
+          _seq: ++order, created_at: new Date().toISOString()
         }
       });
     });
 
     /* 配置版本一并恢复：换手机搬家时定投/固定支出不该丢 */
     var cfgOps = [];
-    (d.dca || []).forEach(function (v) {
+    (Array.isArray(d.dca) ? d.dca : []).forEach(function (v) {
+      if (!v || typeof v !== 'object') return;
       var f = v.fromId || v.from_id, t = v.toId || v.to_id;
       if (!ids[f] || !ids[t] || f === t) return;
-      var amt = Math.round(Number(v.amount || 0) * 100) / 100;
+      var amt = safeMoney(v.amount);
       if (!(amt > 0)) return;
       var eff;
       try { eff = checkDate(v.effectiveFrom || v.effective_from); } catch (e) { return; }
@@ -756,10 +793,11 @@
         }
       });
     });
-    (d.fixed || []).forEach(function (v) {
+    (Array.isArray(d.fixed) ? d.fixed : []).forEach(function (v) {
+      if (!v || typeof v !== 'object') return;
       var aid = v.accountId || v.account_id;
       if (!ids[aid]) return;
-      var amt = Math.round(Number(v.amount || 0) * 100) / 100;
+      var amt = safeMoney(v.amount);
       if (!(amt > 0)) return;
       var eff;
       try { eff = checkDate(v.effectiveFrom || v.effective_from); } catch (e) { return; }
@@ -780,7 +818,7 @@
 
     /* 已删除的自动支出也随备份一起搬家，否则换设备后删掉的那几笔会「复活」 */
     var skipOps = [];
-    (d.skips || []).forEach(function (s) {
+    (Array.isArray(d.skips) ? d.skips : []).forEach(function (s) {
       if (!s || typeof s !== 'object') return;
       var rid = clip(s.ruleId || s.rule_id, 40) || 'default';
       var ds;
@@ -790,20 +828,11 @@
       });
     });
 
-    return write([
-      { op: 'clear', store: 'transactions' },
-      { op: 'clear', store: 'accounts' },
-      { op: 'clear', store: 'dca' },
-      { op: 'clear', store: 'fixed' },
-      { op: 'clear', store: 'skips' }
-    ]).then(function () {
-      seq = 0;
-      accOps.forEach(function (o) {
-        if (o.store === 'accounts') o.value._seq = nextSeq();
-      });
-      txOps.forEach(function (o) { o.value._seq = nextSeq(); });
-      return write(accOps.concat(txOps, cfgOps, skipOps));
-    }).then(function () {
+    var clears = STORES.filter(function (n) { return n !== 'meta'; }).map(function (n) {
+      return { op: 'clear', store: n };
+    });
+    return write(clears.concat(accOps, txOps, cfgOps, skipOps)).then(function () {
+      seq = order;
       return { accounts: accOps.length, transactions: txOps.length };
     });
   }
