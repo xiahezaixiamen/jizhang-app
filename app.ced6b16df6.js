@@ -177,6 +177,7 @@ function updateReimbBar(){
 var box = document.getElementById('reimb-toggle');
 var info = document.getElementById('reimb-info');
 var bar = document.getElementById('reimb-bar');
+var viewBtn = document.getElementById('reimb-view');
 if (box) box.checked = excludeReimb;
 if (!info) return;
 var m = thisMonth(), n = 0, sum = 0;
@@ -186,6 +187,7 @@ monthKey(t.date) === m && t.date <= today()){ n++; sum += t.amount; }
 });
 /* 没有可剔的就不占位置：开关开着时仍显示，好让用户能关掉 */
 if (bar) bar.style.display = (n || excludeReimb) ? '' : 'none';
+if (viewBtn) viewBtn.style.display = n ? '' : 'none';
 if (!n){
 info.textContent = excludeReimb ? '本月暂无报销标记 · 开关已开启' : '';
 return;
@@ -2071,6 +2073,7 @@ var c = cpCycle(CP_ANCHOR, offset);
 document.getElementById('cp-from').value = c.from;
 document.getElementById('cp-to').value = c.to;
 cpRender();
+if (typeof renderMonthlyBill === 'function') renderMonthlyBill();
 }
 /* 相对当前显示的区间前后平移一个周期；按月份移动，保证「12 号」边界不随天数漂移 */
 function cpShift(delta){
@@ -2083,6 +2086,7 @@ fi.value = cpISO(cpAnchor(f.getFullYear(), f.getMonth() + delta, day));
 ti.value = cpISO(cpAnchor(t.getFullYear(), t.getMonth() + delta, day));
 CP_ANCHOR = day;
 cpRender();
+if (typeof renderMonthlyBill === 'function') renderMonthlyBill();
 }
 function cpStats(from, to){
 var end = to > today() ? today() : to;
@@ -2362,6 +2366,7 @@ backgroundColor: areaGrad('255,59,48')}
 options: expOpt
 });
 cpRender();
+if (typeof renderMonthlyBill === 'function') renderMonthlyBill();
 }
 /* ================= 渲染：数据 ================= */
 /* 数据规模：只算会落到 SQLite 里的部分。逐日派生的 autoTx 不入库，
@@ -2385,6 +2390,10 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'90', date:'2026-11-26', items:[
+'新增「公司报销明细与一键入账」：总览报销条点「查看明细」可核对本月全部报销记录，并一键预填报销入账',
+'分析页新增「月度账单速览」：支持左右切换月份，一屏看清收入、支出环比、净结余、储蓄率与 Top 3 消费分类'
+]},
 {v:'89', date:'2026-11-26', items:[
 '移动端细节修复：修复「每日定投」紧凑卡片标题与按钮被挤成竖排；图表容器防止跨卡片溢出',
 '明细筛选「金额区间」手机端独占一行，日历 ≥1 万金额自动简写防贴边；优化账户抽屉关闭按钮与底栏通透度'
@@ -4748,6 +4757,137 @@ if (fab) fab.style.display = db.accounts.length ? '' : 'none';
 function afterRenderAll(){
 try { refreshNoteList(); updateFab(); } catch(e){}
 }
+function reimbRows(month){
+var m = month || thisMonth(), t0 = today();
+return allTx().filter(function(t){
+return t.reimbursable && t.type === 'expense' && monthKey(t.date) === m && t.date <= t0;
+}).sort(function(a, b){ return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
+}
+function openReimbIncomeModal(total, count, month){
+var accs = db.accounts.filter(function(a){
+return (ROLE_META[roleOf(a)] || {}).inLedger !== false;
+});
+if (!accs.length){ alert('请先添加一个可记账的账户。'); return; }
+var defAcc = (accountsByRole('daily')[0] || accs[0]).id;
+var m = month || thisMonth();
+var body =
+'<div class="field"><label for="ri-amt">报销入账金额 (¥)</label>' +
+'<input type="number" id="ri-amt" step="0.01" min="0.01" inputmode="decimal" value="' +
+(privacyOn ? '' : (Math.round(total * 100) / 100).toFixed(2)) + '"' +
+(privacyOn ? ' placeholder="请输入实际到账金额（当前已隐藏）"' : '') + '></div>' +
+'<div class="field"><label for="ri-acct">收款账户</label><select id="ri-acct">' +
+accs.map(function(a){
+return '<option value="' + esc(a.id) + '"' + (a.id === defAcc ? ' selected' : '') + '>' + esc(a.name) + '</option>';
+}).join('') + '</select></div>' +
+'<div class="field"><label for="ri-date">入账日期</label><input type="date" id="ri-date" value="' + today() + '"></div>' +
+'<div class="field"><label for="ri-note">备注</label>' +
+'<input type="text" id="ri-note" maxlength="60" inputmode="text" value="' + esc(m.slice(5) + '月公司报销（' + count + '笔）') + '"></div>' +
+'<span class="muted small">将记为一条「收入 · 报销」流水，对应收款账户余额随之增加。</span>';
+openModal('报销入账', body, async function(){
+var raw = String(document.getElementById('ri-amt').value).trim();
+var amt = +raw;
+if (raw === '' || !(amt > 0)){ alert('请填写有效金额'); return false; }
+await api('/api/transactions', {method:'POST', body:{
+date: document.getElementById('ri-date').value || today(),
+type: 'income',
+account_id: document.getElementById('ri-acct').value,
+category: '报销',
+amount: amt,
+note: document.getElementById('ri-note').value.trim()
+}});
+await reload();
+alert.success('报销已入账 ' + money(amt) + '。');
+}, '确认入账');
+}
+function openReimbModal(month){
+var m = month || thisMonth();
+var rows = reimbRows(m);
+var sum = rows.reduce(function(s, t){ return s + t.amount; }, 0);
+var body = '';
+if (!rows.length){
+body = '<div class="day-empty">本月暂无标记为「公司报销」的支出。</div>';
+} else {
+body = '<div class="day-lines">' + rows.map(function(t){
+var acc = accountById(t.accountId);
+var sub = t.date.slice(5) + (acc ? ' · ' + acc.name : '') + (t.note ? ' · ' + t.note : '');
+return '<div class="list-item"><span class="grow"><span title="' + esc(sub) + '">' +
+catIcon(t.category) + ' ' + esc(t.category || '其他') + ' · ' + esc(sub) + '</span>' +
+(t.auto ? '<span class="tag tag-off">自动</span>' : '') + '</span>' +
+'<span class="amt neg">−' + num(t.amount) + '</span></div>';
+}).join('') + '</div>' +
+'<div class="day-sum">' +
+'<span><span class="lbl">共</span> <b>' + rows.length + ' 笔</b></span>' +
+'<span><span class="lbl">待报销合计</span> <b>' + money(sum) + '</b></span>' +
+'</div>';
+}
+if (!rows.length){
+openModal((+m.slice(5, 7)) + '月公司报销明细', body, function(){ return true; }, '关闭', true, 'btn');
+return;
+}
+openModal((+m.slice(5, 7)) + '月公司报销明细', body, function(){
+openReimbIncomeModal(sum, rows.length, m);
+return false;
+}, '记一笔报销入账');
+}
+var mbMonth = '';
+function renderMonthlyBill(){
+var body = document.getElementById('mb-body');
+var ymEl = document.getElementById('mb-ym');
+var nextBtn = document.getElementById('mb-next');
+if (!body) return;
+var curM = thisMonth();
+if (!mbMonth || mbMonth > curM) mbMonth = curM;
+if (ymEl) ymEl.textContent = (+mbMonth.slice(0, 4)) + '年' + (+mbMonth.slice(5, 7)) + '月';
+if (nextBtn) nextBtn.disabled = mbMonth >= curM;
+var m = monthStats(mbMonth);
+var pm = monthStats(monthShift(mbMonth, -1));
+if (!m.income && !m.expense){
+body.innerHTML = '<div class="empty">这个月还没有收支记录</div>';
+return;
+}
+var expSub = '';
+if (pm.expense > 0){
+var pct = (m.expense - pm.expense) / pm.expense * 100;
+expSub = privacyOn ? '较上月 ' + PRIVACY_MASK
+: '较上月 <b class="' + (pct >= 0 ? 'up' : 'down') + '">' + (pct >= 0 ? '↑' : '↓') +
+Math.abs(Math.round(pct)) + '%</b>';
+}
+var balCls = m.balance > 0.005 ? 'pos' : (m.balance < -0.005 ? 'neg' : '');
+var balTxt = privacyOn ? PRIVACY_MASK
+: ((m.balance > 0.005 ? '+' : (m.balance < -0.005 ? '−' : '')) + moneyShort(Math.abs(m.balance)));
+var saveRate = m.income > 0
+? (privacyOn ? PRIVACY_MASK : Math.round(m.balance / m.income * 100) + '%')
+: '—';
+var html = '<div class="mb-grid">' +
+'<div class="mb-cell"><div class="lab">总收入</div><div class="val">' + moneyShort(m.income) + '</div></div>' +
+'<div class="mb-cell"><div class="lab">总支出</div><div class="val">' + moneyShort(m.expense) + '</div>' +
+(expSub ? '<div class="sub">' + expSub + '</div>' : '') + '</div>' +
+'<div class="mb-cell"><div class="lab">净结余</div><div class="val ' + balCls + '">' + balTxt + '</div></div>' +
+'<div class="mb-cell"><div class="lab">储蓄率</div><div class="val ' + (m.income > 0 && m.balance >= 0 ? 'pos' : '') + '">' +
+saveRate + '</div><div class="sub">结余 / 收入</div></div>' +
+'</div>';
+var cats = Object.keys(m.byCat || {}).sort(function(a, b){ return m.byCat[b] - m.byCat[a]; }).slice(0, 3);
+if (cats.length && m.expense > 0){
+html += '<div class="mb-top3"><div class="mb-top3-hd">支出 Top 3</div>' +
+cats.map(function(c){
+var v = m.byCat[c] || 0, r = Math.min(100, Math.round(v / m.expense * 100));
+return '<div class="mb-cat"><span class="nm">' + catIcon(c) + esc(c) + '</span>' +
+'<div class="bar"><i style="width:' + (privacyOn ? 0 : r) + '%;background:' + catColor(c) + '"></i></div>' +
+'<span class="amt">' + money(v) + (privacyOn ? '' : ' · ' + r + '%') + '</span></div>';
+}).join('') + '</div>';
+}
+body.innerHTML = html;
+}
+function mbShift(delta){
+var curM = thisMonth();
+var next = monthShift(mbMonth || curM, delta);
+if (next > curM) next = curM;
+mbMonth = next;
+renderMonthlyBill();
+}
+ACTIONS['reimb-list'] = function(){ openReimbModal(); };
+ACTIONS['mb-prev'] = function(){ mbShift(-1); };
+ACTIONS['mb-next'] = function(){ mbShift(1); };
 ACTIONS['quick-add'] = function(){ openQuickModal(); };
 ACTIONS['quick-chip'] = function(id){
 var p = QK_CACHE[+id];
