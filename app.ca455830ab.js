@@ -2423,6 +2423,10 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'96', date:'2026-11-27', items:[
+'记账成就徽章墙扩充至 16 枚（新增百笔达人、百日成习、极简一周、超级储蓄、资产布局、自动管家、报销达人、细水长流）',
+'成就徽章墙默认折叠为单行概览卡片，点击即可平滑展开，分析页更清爽'
+]},
 {v:'95', date:'2026-11-27', items:[
 '代码结构整理与性能优化：拆分分析页独立模块、合并热力图与成就墙的 90 天统计缓存，修复切换自定义周期时多余重绘',
 '清理冗余样式并优化深色模式下近 7 天支出柱状图的可见度'
@@ -5104,9 +5108,16 @@ function computeBadges(){
 var st = noSpendStats90();
 var t0 = st.t0, ym = st.ym;
 var dates = loadBadgeDates(), changed = false;
-var daySet = {};
-db.transactions.forEach(function(t){ if (t.date) daySet[t.date] = 1; });
+var daySet = {}, noteCnt = 0, reimbCnt = 0;
+db.transactions.forEach(function(t){
+if (t.date) daySet[t.date] = 1;
+if ((t.note || '').trim()) noteCnt++;
+if (t.reimbursable) reimbCnt++;
+});
 var txDays = Object.keys(daySet).length;
+var txCount = db.transactions.length;
+var acctCount = (db.accounts || []).length;
+var fixedCount = (db.fixed || []).length;
 var m = monthStats(ym);
 var savePct = m.income > 0 ? Math.round(m.balance / m.income * 100) : 0;
 var bd = loadBudgets(), bdOn = hasBudget(bd);
@@ -5119,19 +5130,31 @@ var netHigh = series.length >= 2 && curNet > 0 && curNet >= maxNet - 0.005;
 var list = [
 {id:'first-tx', name:'初次落笔', desc:'记下第一笔账目，开启财务清晰之旅',
 svg:'<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
-done: db.transactions.length >= 1, prog: db.transactions.length + ' / 1 笔'},
+done: txCount >= 1, prog: txCount + ' / 1 笔'},
+{id:'tx-100', name:'百笔达人', desc:'累计手动记账笔数达到 100 笔',
+svg:'<path d="M4 6h16M4 12h16M4 18h10"/><path d="M17 16l2 2 4-4"/>',
+done: txCount >= 100, prog: txCount + ' / 100 笔'},
 {id:'days-30', name:'坚持 30 天', desc:'累计有记账记录的不同日期达到 30 天',
 svg:'<rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M8 3v4M16 3v4M4 10h16"/><path d="M9 15l2 2 4-4"/>',
 done: txDays >= 30, prog: txDays + ' / 30 天'},
+{id:'days-100', name:'百日成习', desc:'累计有记账记录的不同日期达到 100 天',
+svg:'<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3 2"/>',
+done: txDays >= 100, prog: txDays + ' / 100 天'},
 {id:'nospend-3', name:'极简三连', desc:'近 90 天内实现连续 3 天零支出',
 svg:'<path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/>',
 done: st.maxStreak >= 3, prog: '最长 ' + st.maxStreak + ' / 3 天'},
+{id:'nospend-7', name:'极简一周', desc:'近 90 天内实现连续 7 天零支出',
+svg:'<path d="M12 2c2.5 3 6 5.5 6 10a6 6 0 1 1-12 0c0-4.5 3.5-7 6-10z"/>',
+done: st.maxStreak >= 7, prog: '最长 ' + st.maxStreak + ' / 7 天'},
 {id:'nospend-10', name:'月度克制', desc:'单月累计无消费日达到 10 天',
 svg:'<path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4z"/><path d="M9 12l2 2 4-4"/>',
 done: st.zeroCur >= 10, prog: '本月 ' + st.zeroCur + ' / 10 天'},
 {id:'save-40', name:'攒钱能手', desc:'本月储蓄率（结余 ÷ 收入）达到 40%',
 svg:'<circle cx="12" cy="12" r="8.5"/><path d="M9.5 8.8l2.5 2.7 2.5-2.7M9.2 12.2h5.6M9.2 14.8h5.6M12 11.5v5.2"/>',
 done: m.income > 0 && savePct >= 40, prog: m.income > 0 ? '当前 ' + savePct + '%' : '本月暂无收入'},
+{id:'save-60', name:'超级储蓄', desc:'本月储蓄率（结余 ÷ 收入）达到 60%',
+svg:'<path d="M12 3l7 7-7 11-7-11 7-7z"/><path d="M5 10h14"/>',
+done: m.income > 0 && savePct >= 60, prog: m.income > 0 ? '当前 ' + savePct + '%' : '本月暂无收入'},
 {id:'budget-guard', name:'预算守护', desc:'设置月度预算且本月支出未超支',
 svg:'<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/>',
 done: bdOk, prog: bdOn ? (bdOk ? '守住预算' : '已超支') : '未设置预算'},
@@ -5140,7 +5163,19 @@ svg:'<path d="M4 17l5.5-5.5 3.5 3.5L20 8"/><path d="M15 8h5v5"/>',
 done: dcaN >= 30, prog: dcaN + ' / 30 笔'},
 {id:'net-high', name:'资产新高', desc:'当前净资产达到历史记录最高点',
 svg:'<path d="M12 3l2.6 5.4 6 .9-4.3 4.2 1 6-5.3-2.8-5.3 2.8 1-6-4.3-4.2 6-.9L12 3z"/>',
-done: netHigh, prog: series.length >= 2 ? (netHigh ? '已创新高' : '继续积累') : '需满 2 天记录'}
+done: netHigh, prog: series.length >= 2 ? (netHigh ? '已创新高' : '继续积累') : '需满 2 天记录'},
+{id:'acct-3', name:'资产布局', desc:'建立 3 个及以上账户进行资金分类管理',
+svg:'<rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M3 10h18M7 14h4"/>',
+done: acctCount >= 3, prog: acctCount + ' / 3 个账户'},
+{id:'fixed-1', name:'自动管家', desc:'配置至少 1 条固定支出或月付自动入账规则',
+svg:'<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/>',
+done: fixedCount >= 1, prog: fixedCount + ' / 1 条规则'},
+{id:'reimb-pro', name:'报销达人', desc:'使用「公司报销」标记清晰区分垫付支出',
+svg:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3z"/><path d="M9 8h6M9 12h6"/>',
+done: reimbCnt >= 1, prog: reimbCnt + ' / 1 笔'},
+{id:'note-50', name:'细水长流', desc:'累计有 50 笔及以上账目写有清晰备注',
+svg:'<path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M8 9h8M8 13h8M8 17h5"/>',
+done: noteCnt >= 50, prog: noteCnt + ' / 50 笔'}
 ];
 list.forEach(function(b){
 if (b.done && !dates[b.id]){ dates[b.id] = t0; changed = true; }
