@@ -535,6 +535,37 @@ if (el && el.parentNode) el.parentNode.removeChild(el);
 }
 /* ================= 表单弹窗 ================= */
 var modalOK = null, modalDel = null, modalReturn = null, modalFocus = null;
+function syncModalViewport(){
+var mask = document.getElementById('modal-mask');
+if (!mask || !mask.style || !mask.style.setProperty) return;
+var vv = typeof window !== 'undefined' && window.visualViewport;
+if (!vv || !mask.classList.contains('show')){
+mask.style.removeProperty('--kb-offset');
+mask.style.removeProperty('--vv-height');
+mask.classList.remove('kb-open');
+return;
+}
+var kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+mask.style.setProperty('--kb-offset', kb + 'px');
+mask.style.setProperty('--vv-height', Math.round(vv.height) + 'px');
+mask.classList.toggle('kb-open', kb > 60);
+}
+(function(){
+if (typeof window === 'undefined' || !window.visualViewport) return;
+window.visualViewport.addEventListener('resize', syncModalViewport);
+window.visualViewport.addEventListener('scroll', syncModalViewport);
+var body = document.getElementById('modal-body');
+if (body && body.addEventListener){
+body.addEventListener('focusin', function(e){
+var t = e.target;
+if (!t || !t.scrollIntoView) return;
+setTimeout(function(){
+syncModalViewport();
+try { t.scrollIntoView({block:'nearest', behavior:'smooth'}); } catch(err){}
+}, 120);
+});
+}
+})();
 function openModal(title, bodyHTML, onOK, okLabel, hideCancel, okClass){
 var mask = document.getElementById('modal-mask');
 /* 只在最外层记录来源焦点：从整月明细点进编辑时不会再覆盖它，
@@ -562,6 +593,7 @@ var cancel = document.getElementById('modal-cancel');
 if (cancel) cancel.style.display = hideCancel ? 'none' : '';
 hideUndo();
 mask.classList.add('show');
+syncModalViewport();
 /* 遮罩外的页面不再跟着滚：移动端到底后手指一划，弹窗还在、人已经跑别处了 */
 document.documentElement.classList.add('modal-open');
 /* 焦点移进弹窗，读屏才会朗读 role="dialog" 与标题（aria-labelledby）；
@@ -579,6 +611,7 @@ delBtn.style.display = onDel ? '' : 'none';
 function closeModal(){
 var mask = document.getElementById('modal-mask');
 mask.classList.remove('show');
+syncModalViewport();
 document.documentElement.classList.remove('modal-open');
 delete mask.dataset.day;
 delete mask.dataset.month;
