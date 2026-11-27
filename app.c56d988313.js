@@ -2423,6 +2423,9 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'98', date:'2026-11-27', items:[
+'排查并修复类似边界误判：热力图「本月已记天数」按实际开始记账日起算；「预算守护」需本月已有支出才解锁；「资产新高」需净资产确实高于历史低点才解锁'
+]},
 {v:'97', date:'2026-11-27', items:[
 '修复无消费日统计与「极简三连 / 极简一周 / 月度克制」成就把开始记账前的空白日期误算为无消费日的问题，热力图同步将开始记账前显示为中性灰格'
 ]},
@@ -5039,7 +5042,10 @@ var body = document.getElementById('hm-body');
 if (!body) return;
 var st = noSpendStats90();
 var t0 = st.t0, from90 = st.from90, vals = st.vals;
-var curElapsed = +t0.slice(8, 10);
+var curTrack = !st.firstDate ? 0
+: (st.firstDate.slice(0, 7) === st.ym ? (+t0.slice(8, 10)) - (+st.firstDate.slice(8, 10)) + 1 : +t0.slice(8, 10));
+var curSub = !st.firstDate ? '尚未开始记账'
+: (st.firstDate.slice(0, 7) === st.ym ? '本月已记 ' + curTrack + ' 天' : '本月已过 ' + curTrack + ' 天');
 function qAt(p){ return vals.length ? vals[Math.min(vals.length - 1, Math.floor(vals.length * p))] : 0; }
 var q1 = qAt(0.25), q2 = qAt(0.55), q3 = qAt(0.82);
 var pad = new Date(from90 + 'T00:00:00').getDay();
@@ -5091,7 +5097,7 @@ body.innerHTML =
 '<div class="hm-stats">' +
 '<div class="hm-stat"><div class="lab">本月无消费日</div>' +
 '<div class="val ok">' + (privacyOn ? PRIVACY_MASK : st.zeroCur + ' 天') + '</div>' +
-'<div class="sub">' + (privacyOn ? PRIVACY_MASK : '本月已过 ' + curElapsed + ' 天') + '</div></div>' +
+'<div class="sub">' + (privacyOn ? PRIVACY_MASK : curSub) + '</div></div>' +
 '<div class="hm-stat"><div class="lab">近 90 天无消费</div>' +
 '<div class="val">' + (privacyOn ? PRIVACY_MASK : st.zero90 + ' 天') + '</div>' +
 '<div class="sub">' + (privacyOn ? PRIVACY_MASK : (st.maxStreak >= 2 ? '最长连续 ' + st.maxStreak + ' 天' : '继续保持')) + '</div></div>' +
@@ -5132,12 +5138,13 @@ var fixedCount = (db.fixed || []).length;
 var m = monthStats(ym);
 var savePct = m.income > 0 ? Math.round(m.balance / m.income * 100) : 0;
 var bd = loadBudgets(), bdOn = hasBudget(bd);
-var bdOk = bdOn && (bd.total > 0 ? m.expense <= bd.total : Object.keys(bd.cats).every(function(c){ return (m.byCat[c] || 0) <= bd.cats[c]; }));
+var bdOk = bdOn && m.expense > 0 && (bd.total > 0 ? m.expense <= bd.total : Object.keys(bd.cats).every(function(c){ return (m.byCat[c] || 0) <= bd.cats[c]; }));
 var dcaN = typeof dcaStats === 'function' ? dcaStats().count : 0;
 var series = buildSeries();
 var curNet = series.length ? series[series.length - 1].net : 0;
 var maxNet = series.reduce(function(mx, p){ return p.net > mx ? p.net : mx; }, -Infinity);
-var netHigh = series.length >= 2 && curNet > 0 && curNet >= maxNet - 0.005;
+var minNet = series.reduce(function(mn, p){ return p.net < mn ? p.net : mn; }, Infinity);
+var netHigh = series.length >= 2 && curNet > 0 && curNet >= maxNet - 0.005 && curNet > minNet + 0.005;
 var list = [
 {id:'first-tx', name:'初次落笔', desc:'记下第一笔账目，开启财务清晰之旅',
 svg:'<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
@@ -5168,7 +5175,7 @@ svg:'<path d="M12 3l7 7-7 11-7-11 7-7z"/><path d="M5 10h14"/>',
 done: m.income > 0 && savePct >= 60, prog: m.income > 0 ? '当前 ' + savePct + '%' : '本月暂无收入'},
 {id:'budget-guard', name:'预算守护', desc:'设置月度预算且本月支出未超支',
 svg:'<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/>',
-done: bdOk, prog: bdOn ? (bdOk ? '守住预算' : '已超支') : '未设置预算'},
+done: bdOk, prog: !bdOn ? '未设置预算' : (m.expense <= 0 ? '本月暂无支出' : (bdOk ? '守住预算' : '已超支'))},
 {id:'dca-30', name:'长期主义', desc:'每日定投累计自动结算满 30 笔',
 svg:'<path d="M4 17l5.5-5.5 3.5 3.5L20 8"/><path d="M15 8h5v5"/>',
 done: dcaN >= 30, prog: dcaN + ' / 30 笔'},
@@ -5188,11 +5195,13 @@ done: reimbCnt >= 1, prog: reimbCnt + ' / 1 笔'},
 svg:'<path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M8 9h8M8 13h8M8 17h5"/>',
 done: noteCnt >= 50, prog: noteCnt + ' / 50 笔'}
 ];
-if (!dates._v2){
+if (!dates._v3){
 delete dates['nospend-3'];
 delete dates['nospend-7'];
 delete dates['nospend-10'];
-dates._v2 = 1;
+delete dates['budget-guard'];
+delete dates['net-high'];
+dates._v3 = 1;
 changed = true;
 }
 list.forEach(function(b){
