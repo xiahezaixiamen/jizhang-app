@@ -12,7 +12,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="avatar-180.jpg">
 <!-- 应用版本：与 mobile/sw.js 的 CACHE 版本号同步，构建手机版时自动改写 -->
-<meta name="app-version" content="91">
+<meta name="app-version" content="92">
 <title>本地个人财务管理</title>
 <!-- 首帧前先套上主题，避免暗色用户看到一次白闪。切换逻辑在 app.js 里。 -->
 <script>try{var m=localStorage.getItem('jz_theme_mode'),d=m==='auto'?!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches):(m==='dark'||(!m&&localStorage.getItem('jz_theme')==='dark'));if(d)document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
@@ -468,20 +468,20 @@
   </div>
 </div>
 
-<script src="localdb.js?v=91"></script>
+<script src="localdb.js?v=92"></script>
 <script src="lib/chart.umd.min.js"></script>
 <script>
 if (typeof Chart === 'undefined') {
   document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"><\/script>');
 }
 </script>
-<script src="app.0f84ee6602.js"></script><script>
+<script src="app.8fcb1998aa.js"></script><script>
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
     /* updateViaCache:'none' 让 sw.js 本身也绕过 HTTP 缓存（GitHub Pages 给它
        max-age=600，不绕就会卡在旧版本最多十分钟）；注册后再主动 update 一次，
        打开即检查，不必等浏览器自己想起来。 */
-    navigator.serviceWorker.register('sw.js?v=91', {updateViaCache: 'none'})
+    navigator.serviceWorker.register('sw.js?v=92', {updateViaCache: 'none'})
       .then(function (reg) { return reg.update(); })
       .catch(function () {});
   });
