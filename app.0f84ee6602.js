@@ -2107,6 +2107,7 @@ document.getElementById('cp-from').value = c.from;
 document.getElementById('cp-to').value = c.to;
 cpRender();
 if (typeof renderMonthlyBill === 'function') renderMonthlyBill();
+if (typeof renderHeatmap === 'function') renderHeatmap();
 }
 /* 相对当前显示的区间前后平移一个周期；按月份移动，保证「12 号」边界不随天数漂移 */
 function cpShift(delta){
@@ -2120,6 +2121,7 @@ ti.value = cpISO(cpAnchor(t.getFullYear(), t.getMonth() + delta, day));
 CP_ANCHOR = day;
 cpRender();
 if (typeof renderMonthlyBill === 'function') renderMonthlyBill();
+if (typeof renderHeatmap === 'function') renderHeatmap();
 }
 function cpStats(from, to){
 var end = to > today() ? today() : to;
@@ -2400,6 +2402,7 @@ options: expOpt
 });
 cpRender();
 if (typeof renderMonthlyBill === 'function') renderMonthlyBill();
+if (typeof renderHeatmap === 'function') renderHeatmap();
 }
 /* ================= 渲染：数据 ================= */
 /* 数据规模：只算会落到 SQLite 里的部分。逐日派生的 autoTx 不入库，
@@ -2423,6 +2426,10 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'91', date:'2026-11-27', items:[
+'分析页新增「无消费日打卡 & 近 90 天消费热力图」：零支出日亮绿打卡，消费越高颜色越深，点击格子直接看当天明细',
+'新增「拿铁因子」雷达：自动统计近 90 天单笔 ≤ ¥50 的高频小额支出 Top 3，帮你发现不知不觉花掉的小钱'
+]},
 {v:'90', date:'2026-11-26', items:[
 '新增「公司报销明细与一键入账」：总览报销条点「查看明细」可核对本月全部报销记录，并一键预填报销入账',
 '分析页新增「月度账单速览」：支持左右切换月份，一屏看清收入、支出环比、净结余、储蓄率与 Top 3 消费分类'
@@ -4918,9 +4925,102 @@ if (next > curM) next = curM;
 mbMonth = next;
 renderMonthlyBill();
 }
+function renderHeatmap(){
+var body = document.getElementById('hm-body');
+if (!body) return;
+var t0 = today(), ym = thisMonth(), from90 = shiftDate(t0, -89);
+var list90 = spendIn(from90, t0);
+var byDay = {};
+list90.forEach(function(t){ byDay[t.date] = (byDay[t.date] || 0) + t.amount; });
+var days = [], vals = [], zero90 = 0, zeroCur = 0, curElapsed = +t0.slice(8, 10);
+var streak = 0, maxStreak = 0, i;
+for (i = 0; i < 90; i++){
+var d = shiftDate(from90, i);
+var v = byDay[d] || 0;
+days.push({date: d, val: v});
+if (v <= 0.005){
+zero90++;
+if (d.slice(0, 7) === ym) zeroCur++;
+streak++;
+if (streak > maxStreak) maxStreak = streak;
+} else {
+vals.push(v);
+streak = 0;
+}
+}
+vals.sort(function(a, b){ return a - b; });
+function qAt(p){ return vals.length ? vals[Math.min(vals.length - 1, Math.floor(vals.length * p))] : 0; }
+var q1 = qAt(0.25), q2 = qAt(0.55), q3 = qAt(0.82);
+var pad = new Date(from90 + 'T00:00:00').getDay();
+var cells = '';
+for (i = 0; i < pad; i++) cells += '<span class="hm-cell blank"></span>';
+days.forEach(function(it){
+var cls = 'hm-cell';
+if (privacyOn){
+cls += ' lv-mask';
+} else if (it.val <= 0.005){
+cls += ' lv0';
+} else if (it.val <= q1){
+cls += ' lv1';
+} else if (it.val <= q2){
+cls += ' lv2';
+} else if (it.val <= q3){
+cls += ' lv3';
+} else {
+cls += ' lv4';
+}
+if (it.date === t0) cls += ' is-today';
+var tip = privacyOn ? it.date
+: (it.date + (it.val <= 0.005 ? ' · 无消费日' : ' · 支出 ' + money(it.val)));
+cells += '<button type="button" class="' + cls + '" data-act="hm-day" data-date="' +
+it.date + '" title="' + esc(tip) + '" aria-label="' + esc(tip) + '"></button>';
+});
+var lMap = {};
+list90.forEach(function(t){
+if (t.auto || t.amount > 50) return;
+var label = (t.note || '').trim() || t.category || '其他';
+var m = lMap[label] || (lMap[label] = {label: label, cat: t.category || '其他', n: 0, total: 0});
+m.n++; m.total += t.amount;
+});
+var lattes = Object.keys(lMap).map(function(k){ return lMap[k]; })
+.filter(function(x){ return x.n >= 3; })
+.sort(function(a, b){ return b.total - a.total; })
+.slice(0, 3);
+var latteHtml = '<div class="hm-latte"><div class="hm-latte-hd"><span>拿铁因子 · 近 90 天高频小额（≤ ¥50）</span></div>' +
+(lattes.length
+? lattes.map(function(x){
+return '<div class="hm-latte-row"><span class="nm">' + catIcon(x.cat) + esc(x.label) + '</span>' +
+'<span class="meta">' + (privacyOn ? PRIVACY_MASK : x.n + ' 笔 · 均 ' + money(x.total / x.n)) + '</span>' +
+'<span class="amt">' + money(x.total) + '</span></div>';
+}).join('')
+: '<div class="muted small">近 90 天暂无单笔 ≤ ¥50 且达 3 次以上的高频小额支出</div>') +
+'</div>';
+body.innerHTML =
+'<div class="hm-stats">' +
+'<div class="hm-stat"><div class="lab">本月无消费日</div>' +
+'<div class="val ok">' + (privacyOn ? PRIVACY_MASK : zeroCur + ' 天') + '</div>' +
+'<div class="sub">' + (privacyOn ? PRIVACY_MASK : '本月已过 ' + curElapsed + ' 天') + '</div></div>' +
+'<div class="hm-stat"><div class="lab">近 90 天无消费</div>' +
+'<div class="val">' + (privacyOn ? PRIVACY_MASK : zero90 + ' 天') + '</div>' +
+'<div class="sub">' + (privacyOn ? PRIVACY_MASK : (maxStreak >= 2 ? '最长连续 ' + maxStreak + ' 天' : '继续保持')) + '</div></div>' +
+'</div>' +
+'<div class="hm-wrap"><div class="hm-grid">' + cells + '</div></div>' +
+'<div class="hm-legend">' +
+'<span class="hm-leg-items"><i class="hm-leg-dot" style="background:rgba(52,199,89,.72)"></i>无消费日</span>' +
+'<span class="hm-leg-items">少 <i class="hm-leg-dot" style="background:rgba(255,59,48,.18)"></i>' +
+'<i class="hm-leg-dot" style="background:rgba(255,59,48,.38)"></i>' +
+'<i class="hm-leg-dot" style="background:rgba(255,59,48,.62)"></i>' +
+'<i class="hm-leg-dot" style="background:rgba(255,59,48,.88)"></i> 多 · 点格子看明细</span>' +
+'</div>' +
+latteHtml;
+}
 ACTIONS['reimb-list'] = function(){ openReimbModal(); };
 ACTIONS['mb-prev'] = function(){ mbShift(-1); };
 ACTIONS['mb-next'] = function(){ mbShift(1); };
+ACTIONS['hm-day'] = function(id, el){
+var d = el ? el.getAttribute('data-date') : '';
+if (d && typeof ledOpenDay === 'function') ledOpenDay(d);
+};
 ACTIONS['quick-add'] = function(){ openQuickModal(); };
 ACTIONS['quick-chip'] = function(id){
 var p = QK_CACHE[+id];
