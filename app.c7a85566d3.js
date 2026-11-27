@@ -2106,9 +2106,6 @@ var c = cpCycle(CP_ANCHOR, offset);
 document.getElementById('cp-from').value = c.from;
 document.getElementById('cp-to').value = c.to;
 cpRender();
-if (typeof renderMonthlyBill === 'function') renderMonthlyBill();
-if (typeof renderHeatmap === 'function') renderHeatmap();
-if (typeof renderAchievements === 'function') renderAchievements();
 }
 /* 相对当前显示的区间前后平移一个周期；按月份移动，保证「12 号」边界不随天数漂移 */
 function cpShift(delta){
@@ -2121,9 +2118,6 @@ fi.value = cpISO(cpAnchor(f.getFullYear(), f.getMonth() + delta, day));
 ti.value = cpISO(cpAnchor(t.getFullYear(), t.getMonth() + delta, day));
 CP_ANCHOR = day;
 cpRender();
-if (typeof renderMonthlyBill === 'function') renderMonthlyBill();
-if (typeof renderHeatmap === 'function') renderHeatmap();
-if (typeof renderAchievements === 'function') renderAchievements();
 }
 function cpStats(from, to){
 var end = to > today() ? today() : to;
@@ -2429,6 +2423,10 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'95', date:'2026-11-27', items:[
+'代码结构整理与性能优化：拆分分析页独立模块、合并热力图与成就墙的 90 天统计缓存，修复切换自定义周期时多余重绘',
+'清理冗余样式并优化深色模式下近 7 天支出柱状图的可见度'
+]},
 {v:'94', date:'2026-11-27', items:[
 '分析页新增「记账成就徽章墙」：8 枚极简矢量徽章（初次落笔、坚持 30 天、极简三连、月度克制、攒钱能手、预算守护、长期主义、资产新高），自动记录解锁日期，点击可看达成进度'
 ]},
@@ -4806,6 +4804,63 @@ if (fab) fab.style.display = db.accounts.length ? '' : 'none';
 function afterRenderAll(){
 try { refreshNoteList(); updateFab(); } catch(e){}
 }
+ACTIONS['quick-add'] = function(){ openQuickModal(); };
+ACTIONS['quick-chip'] = function(id){
+var p = QK_CACHE[+id];
+if (!p) return;
+if (p.stable) return quickRecord({amount: p.amount, category: p.cat, accountId: p.accountId, note: p.note});
+openQuickModal(p);
+};
+ACTIONS['budget-edit'] = function(){ openBudgetModal(); };
+ACTIONS['ov-pick'] = function(id){ ovCatPick(+id); };
+ACTIONS['ob-add-acct'] = function(){ openAccountModal(); };
+ACTIONS['ob-demo'] = function(){ return loadDemo(); };
+ACTIONS['theme-mode'] = function(id){ setThemeMode(id); };
+(function(){
+var n = document.getElementById('tx-note');
+if (n && n.addEventListener){
+n.addEventListener('change', function(){
+if (txType !== 'expense') return;
+applyNoteHint('tx-note', 'tx-cat', 'tx-amount', 'tx-acct');
+updateTxHint();
+});
+}
+})();
+(function(){
+var mask = document.getElementById('modal-mask');
+if (!mask || !mask.addEventListener) return;
+var box = null, y0 = 0, dy = 0, drag = false;
+function isMobile(){
+try { return !!(window.matchMedia && window.matchMedia('(max-width:640px)').matches); }
+catch(e){ return false; }
+}
+mask.addEventListener('touchstart', function(e){
+if (!isMobile() || !e.target || !e.target.closest) return;
+var m = e.target.closest('.modal');
+if (!m) return;
+var t = e.touches && e.touches[0];
+if (!t || t.clientY - m.getBoundingClientRect().top > 64) return;
+box = m; y0 = t.clientY; dy = 0; drag = true;
+m.style.transition = 'none';
+}, {passive: true});
+mask.addEventListener('touchmove', function(e){
+if (!drag) return;
+dy = Math.max(0, e.touches[0].clientY - y0);
+box.style.transform = 'translateY(' + dy + 'px)';
+}, {passive: true});
+function end(){
+if (!drag) return;
+drag = false;
+var m = box;
+m.style.transition = '';
+m.style.transform = '';
+if (dy > 90) closeModal();
+}
+mask.addEventListener('touchend', end);
+mask.addEventListener('touchcancel', end);
+})();
+requestPersist();
+;
 function reimbRows(month){
 var m = month || thisMonth(), t0 = today();
 return allTx().filter(function(t){
@@ -4934,16 +4989,17 @@ if (next > curM) next = curM;
 mbMonth = next;
 renderMonthlyBill();
 }
-function renderHeatmap(){
-var body = document.getElementById('hm-body');
-if (!body) return;
-var t0 = today(), ym = thisMonth(), from90 = shiftDate(t0, -89);
+function noSpendStats90(){
+var t0 = today(), ym = thisMonth();
+var c = cache();
+if (c.ns90 && c.ns90.t0 === t0) return c.ns90;
+var from90 = shiftDate(t0, -89);
 var list90 = spendIn(from90, t0);
 var byDay = {};
 list90.forEach(function(t){ byDay[t.date] = (byDay[t.date] || 0) + t.amount; });
-var days = [], vals = [], zero90 = 0, zeroCur = 0, curElapsed = +t0.slice(8, 10);
-var streak = 0, maxStreak = 0, i;
-for (i = 0; i < 90; i++){
+var days = [], vals = [], zero90 = 0, zeroCur = 0;
+var streak = 0, maxStreak = 0;
+for (var i = 0; i < 90; i++){
 var d = shiftDate(from90, i);
 var v = byDay[d] || 0;
 days.push({date: d, val: v});
@@ -4958,12 +5014,24 @@ streak = 0;
 }
 }
 vals.sort(function(a, b){ return a - b; });
+c.ns90 = {
+t0: t0, ym: ym, from90: from90, list90: list90,
+days: days, vals: vals, zero90: zero90, zeroCur: zeroCur, maxStreak: maxStreak
+};
+return c.ns90;
+}
+function renderHeatmap(){
+var body = document.getElementById('hm-body');
+if (!body) return;
+var st = noSpendStats90();
+var t0 = st.t0, from90 = st.from90, vals = st.vals;
+var curElapsed = +t0.slice(8, 10);
 function qAt(p){ return vals.length ? vals[Math.min(vals.length - 1, Math.floor(vals.length * p))] : 0; }
 var q1 = qAt(0.25), q2 = qAt(0.55), q3 = qAt(0.82);
 var pad = new Date(from90 + 'T00:00:00').getDay();
 var cells = '';
-for (i = 0; i < pad; i++) cells += '<span class="hm-cell blank"></span>';
-days.forEach(function(it){
+for (var i = 0; i < pad; i++) cells += '<span class="hm-cell blank"></span>';
+st.days.forEach(function(it){
 var cls = 'hm-cell';
 if (privacyOn){
 cls += ' lv-mask';
@@ -4985,7 +5053,7 @@ cells += '<button type="button" class="' + cls + '" data-act="hm-day" data-date=
 it.date + '" title="' + esc(tip) + '" aria-label="' + esc(tip) + '"></button>';
 });
 var lMap = {};
-list90.forEach(function(t){
+st.list90.forEach(function(t){
 if (t.auto || t.amount > 50) return;
 var label = (t.note || '').trim() || t.category || '其他';
 var m = lMap[label] || (lMap[label] = {label: label, cat: t.category || '其他', n: 0, total: 0});
@@ -5007,11 +5075,11 @@ return '<div class="hm-latte-row"><span class="nm">' + catIcon(x.cat) + esc(x.la
 body.innerHTML =
 '<div class="hm-stats">' +
 '<div class="hm-stat"><div class="lab">本月无消费日</div>' +
-'<div class="val ok">' + (privacyOn ? PRIVACY_MASK : zeroCur + ' 天') + '</div>' +
+'<div class="val ok">' + (privacyOn ? PRIVACY_MASK : st.zeroCur + ' 天') + '</div>' +
 '<div class="sub">' + (privacyOn ? PRIVACY_MASK : '本月已过 ' + curElapsed + ' 天') + '</div></div>' +
 '<div class="hm-stat"><div class="lab">近 90 天无消费</div>' +
-'<div class="val">' + (privacyOn ? PRIVACY_MASK : zero90 + ' 天') + '</div>' +
-'<div class="sub">' + (privacyOn ? PRIVACY_MASK : (maxStreak >= 2 ? '最长连续 ' + maxStreak + ' 天' : '继续保持')) + '</div></div>' +
+'<div class="val">' + (privacyOn ? PRIVACY_MASK : st.zero90 + ' 天') + '</div>' +
+'<div class="sub">' + (privacyOn ? PRIVACY_MASK : (st.maxStreak >= 2 ? '最长连续 ' + st.maxStreak + ' 天' : '继续保持')) + '</div></div>' +
 '</div>' +
 '<div class="hm-wrap"><div class="hm-grid">' + cells + '</div></div>' +
 '<div class="hm-legend">' +
@@ -5033,24 +5101,12 @@ return (o && typeof o === 'object') ? o : {};
 }
 function saveBadgeDates(o){ lsSet(ACH_KEY, JSON.stringify(o)); }
 function computeBadges(){
-var t0 = today(), ym = thisMonth(), from90 = shiftDate(t0, -89);
+var st = noSpendStats90();
+var t0 = st.t0, ym = st.ym;
 var dates = loadBadgeDates(), changed = false;
 var daySet = {};
 db.transactions.forEach(function(t){ if (t.date) daySet[t.date] = 1; });
 var txDays = Object.keys(daySet).length;
-var list90 = spendIn(from90, t0), byDay = {};
-list90.forEach(function(t){ byDay[t.date] = (byDay[t.date] || 0) + t.amount; });
-var zeroCur = 0, streak = 0, maxStreak = 0;
-for (var i = 0; i < 90; i++){
-var d = shiftDate(from90, i);
-if ((byDay[d] || 0) <= 0.005){
-if (d.slice(0, 7) === ym) zeroCur++;
-streak++;
-if (streak > maxStreak) maxStreak = streak;
-} else {
-streak = 0;
-}
-}
 var m = monthStats(ym);
 var savePct = m.income > 0 ? Math.round(m.balance / m.income * 100) : 0;
 var bd = loadBudgets(), bdOn = hasBudget(bd);
@@ -5069,10 +5125,10 @@ svg:'<rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M8 3v4M16 3v4M4
 done: txDays >= 30, prog: txDays + ' / 30 天'},
 {id:'nospend-3', name:'极简三连', desc:'近 90 天内实现连续 3 天零支出',
 svg:'<path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/>',
-done: maxStreak >= 3, prog: '最长 ' + maxStreak + ' / 3 天'},
+done: st.maxStreak >= 3, prog: '最长 ' + st.maxStreak + ' / 3 天'},
 {id:'nospend-10', name:'月度克制', desc:'单月累计无消费日达到 10 天',
 svg:'<path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4z"/><path d="M9 12l2 2 4-4"/>',
-done: zeroCur >= 10, prog: '本月 ' + zeroCur + ' / 10 天'},
+done: st.zeroCur >= 10, prog: '本月 ' + st.zeroCur + ' / 10 天'},
 {id:'save-40', name:'攒钱能手', desc:'本月储蓄率（结余 ÷ 收入）达到 40%',
 svg:'<circle cx="12" cy="12" r="8.5"/><path d="M9.5 8.8l2.5 2.7 2.5-2.7M9.2 12.2h5.6M9.2 14.8h5.6M12 11.5v5.2"/>',
 done: m.income > 0 && savePct >= 40, prog: m.income > 0 ? '当前 ' + savePct + '%' : '本月暂无收入'},
@@ -5136,59 +5192,3 @@ var d = el ? el.getAttribute('data-date') : '';
 if (d && typeof ledOpenDay === 'function') ledOpenDay(d);
 };
 ACTIONS['ach-detail'] = function(id){ openBadgeDetail(id); };
-ACTIONS['quick-add'] = function(){ openQuickModal(); };
-ACTIONS['quick-chip'] = function(id){
-var p = QK_CACHE[+id];
-if (!p) return;
-if (p.stable) return quickRecord({amount: p.amount, category: p.cat, accountId: p.accountId, note: p.note});
-openQuickModal(p);
-};
-ACTIONS['budget-edit'] = function(){ openBudgetModal(); };
-ACTIONS['ov-pick'] = function(id){ ovCatPick(+id); };
-ACTIONS['ob-add-acct'] = function(){ openAccountModal(); };
-ACTIONS['ob-demo'] = function(){ return loadDemo(); };
-ACTIONS['theme-mode'] = function(id){ setThemeMode(id); };
-(function(){
-var n = document.getElementById('tx-note');
-if (n && n.addEventListener){
-n.addEventListener('change', function(){
-if (txType !== 'expense') return;
-applyNoteHint('tx-note', 'tx-cat', 'tx-amount', 'tx-acct');
-updateTxHint();
-});
-}
-})();
-(function(){
-var mask = document.getElementById('modal-mask');
-if (!mask || !mask.addEventListener) return;
-var box = null, y0 = 0, dy = 0, drag = false;
-function isMobile(){
-try { return !!(window.matchMedia && window.matchMedia('(max-width:640px)').matches); }
-catch(e){ return false; }
-}
-mask.addEventListener('touchstart', function(e){
-if (!isMobile() || !e.target || !e.target.closest) return;
-var m = e.target.closest('.modal');
-if (!m) return;
-var t = e.touches && e.touches[0];
-if (!t || t.clientY - m.getBoundingClientRect().top > 64) return;
-box = m; y0 = t.clientY; dy = 0; drag = true;
-m.style.transition = 'none';
-}, {passive: true});
-mask.addEventListener('touchmove', function(e){
-if (!drag) return;
-dy = Math.max(0, e.touches[0].clientY - y0);
-box.style.transform = 'translateY(' + dy + 'px)';
-}, {passive: true});
-function end(){
-if (!drag) return;
-drag = false;
-var m = box;
-m.style.transition = '';
-m.style.transform = '';
-if (dy > 90) closeModal();
-}
-mask.addEventListener('touchend', end);
-mask.addEventListener('touchcancel', end);
-})();
-requestPersist();
