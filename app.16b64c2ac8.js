@@ -2423,6 +2423,9 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'97', date:'2026-11-27', items:[
+'修复无消费日统计与「极简三连 / 极简一周 / 月度克制」成就把开始记账前的空白日期误算为无消费日的问题，热力图同步将开始记账前显示为中性灰格'
+]},
 {v:'96', date:'2026-11-27', items:[
 '记账成就徽章墙扩充至 16 枚（新增百笔达人、百日成习、极简一周、超级储蓄、资产布局、自动管家、报销达人、细水长流）',
 '成就徽章墙默认折叠为单行概览卡片，点击即可平滑展开，分析页更清爽'
@@ -4997,6 +5000,10 @@ function noSpendStats90(){
 var t0 = today(), ym = thisMonth();
 var c = cache();
 if (c.ns90 && c.ns90.t0 === t0) return c.ns90;
+var firstDate = '';
+(db.transactions || []).forEach(function(t){
+if (t.date && (!firstDate || t.date < firstDate)) firstDate = t.date;
+});
 var from90 = shiftDate(t0, -89);
 var list90 = spendIn(from90, t0);
 var byDay = {};
@@ -5005,9 +5012,12 @@ var days = [], vals = [], zero90 = 0, zeroCur = 0;
 var streak = 0, maxStreak = 0;
 for (var i = 0; i < 90; i++){
 var d = shiftDate(from90, i);
-var v = byDay[d] || 0;
-days.push({date: d, val: v});
-if (v <= 0.005){
+var pre = !firstDate || d < firstDate;
+var v = pre ? 0 : (byDay[d] || 0);
+days.push({date: d, val: v, pre: pre});
+if (pre){
+streak = 0;
+} else if (v <= 0.005){
 zero90++;
 if (d.slice(0, 7) === ym) zeroCur++;
 streak++;
@@ -5019,7 +5029,7 @@ streak = 0;
 }
 vals.sort(function(a, b){ return a - b; });
 c.ns90 = {
-t0: t0, ym: ym, from90: from90, list90: list90,
+t0: t0, ym: ym, from90: from90, firstDate: firstDate, list90: list90,
 days: days, vals: vals, zero90: zero90, zeroCur: zeroCur, maxStreak: maxStreak
 };
 return c.ns90;
@@ -5039,6 +5049,7 @@ st.days.forEach(function(it){
 var cls = 'hm-cell';
 if (privacyOn){
 cls += ' lv-mask';
+} else if (it.pre){
 } else if (it.val <= 0.005){
 cls += ' lv0';
 } else if (it.val <= q1){
@@ -5052,7 +5063,7 @@ cls += ' lv4';
 }
 if (it.date === t0) cls += ' is-today';
 var tip = privacyOn ? it.date
-: (it.date + (it.val <= 0.005 ? ' · 无消费日' : ' · 支出 ' + money(it.val)));
+: (it.date + (it.pre ? ' · 未开始记账' : (it.val <= 0.005 ? ' · 无消费日' : ' · 支出 ' + money(it.val))));
 cells += '<button type="button" class="' + cls + '" data-act="hm-day" data-date="' +
 it.date + '" title="' + esc(tip) + '" aria-label="' + esc(tip) + '"></button>';
 });
@@ -5177,6 +5188,13 @@ done: reimbCnt >= 1, prog: reimbCnt + ' / 1 笔'},
 svg:'<path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M8 9h8M8 13h8M8 17h5"/>',
 done: noteCnt >= 50, prog: noteCnt + ' / 50 笔'}
 ];
+if (!dates._v2){
+delete dates['nospend-3'];
+delete dates['nospend-7'];
+delete dates['nospend-10'];
+dates._v2 = 1;
+changed = true;
+}
 list.forEach(function(b){
 if (b.done && !dates[b.id]){ dates[b.id] = t0; changed = true; }
 b.unlockedAt = dates[b.id] || '';
