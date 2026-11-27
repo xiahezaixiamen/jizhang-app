@@ -2108,6 +2108,7 @@ document.getElementById('cp-to').value = c.to;
 cpRender();
 if (typeof renderMonthlyBill === 'function') renderMonthlyBill();
 if (typeof renderHeatmap === 'function') renderHeatmap();
+if (typeof renderAchievements === 'function') renderAchievements();
 }
 /* 相对当前显示的区间前后平移一个周期；按月份移动，保证「12 号」边界不随天数漂移 */
 function cpShift(delta){
@@ -2122,6 +2123,7 @@ CP_ANCHOR = day;
 cpRender();
 if (typeof renderMonthlyBill === 'function') renderMonthlyBill();
 if (typeof renderHeatmap === 'function') renderHeatmap();
+if (typeof renderAchievements === 'function') renderAchievements();
 }
 function cpStats(from, to){
 var end = to > today() ? today() : to;
@@ -2403,6 +2405,7 @@ options: expOpt
 cpRender();
 if (typeof renderMonthlyBill === 'function') renderMonthlyBill();
 if (typeof renderHeatmap === 'function') renderHeatmap();
+if (typeof renderAchievements === 'function') renderAchievements();
 }
 /* ================= 渲染：数据 ================= */
 /* 数据规模：只算会落到 SQLite 里的部分。逐日派生的 autoTx 不入库，
@@ -2426,6 +2429,9 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'94', date:'2026-11-27', items:[
+'分析页新增「记账成就徽章墙」：8 枚极简矢量徽章（初次落笔、坚持 30 天、极简三连、月度克制、攒钱能手、预算守护、长期主义、资产新高），自动记录解锁日期，点击可看达成进度'
+]},
 {v:'93', date:'2026-11-27', items:[
 '界面恢复为 v91 经典苹果极简风格（保留 iOS 软键盘防遮挡修复与无消费日打卡/热力图/拿铁因子功能）'
 ]},
@@ -5017,6 +5023,111 @@ body.innerHTML =
 '</div>' +
 latteHtml;
 }
+var ACH_KEY = 'jz_badges';
+var ACH_CACHE = [];
+function loadBadgeDates(){
+try {
+var o = JSON.parse(lsGet(ACH_KEY) || '{}');
+return (o && typeof o === 'object') ? o : {};
+} catch(e){ return {}; }
+}
+function saveBadgeDates(o){ lsSet(ACH_KEY, JSON.stringify(o)); }
+function computeBadges(){
+var t0 = today(), ym = thisMonth(), from90 = shiftDate(t0, -89);
+var dates = loadBadgeDates(), changed = false;
+var daySet = {};
+db.transactions.forEach(function(t){ if (t.date) daySet[t.date] = 1; });
+var txDays = Object.keys(daySet).length;
+var list90 = spendIn(from90, t0), byDay = {};
+list90.forEach(function(t){ byDay[t.date] = (byDay[t.date] || 0) + t.amount; });
+var zeroCur = 0, streak = 0, maxStreak = 0;
+for (var i = 0; i < 90; i++){
+var d = shiftDate(from90, i);
+if ((byDay[d] || 0) <= 0.005){
+if (d.slice(0, 7) === ym) zeroCur++;
+streak++;
+if (streak > maxStreak) maxStreak = streak;
+} else {
+streak = 0;
+}
+}
+var m = monthStats(ym);
+var savePct = m.income > 0 ? Math.round(m.balance / m.income * 100) : 0;
+var bd = loadBudgets(), bdOn = hasBudget(bd);
+var bdOk = bdOn && (bd.total > 0 ? m.expense <= bd.total : Object.keys(bd.cats).every(function(c){ return (m.byCat[c] || 0) <= bd.cats[c]; }));
+var dcaN = typeof dcaStats === 'function' ? dcaStats().count : 0;
+var series = buildSeries();
+var curNet = series.length ? series[series.length - 1].net : 0;
+var maxNet = series.reduce(function(mx, p){ return p.net > mx ? p.net : mx; }, -Infinity);
+var netHigh = series.length >= 2 && curNet > 0 && curNet >= maxNet - 0.005;
+var list = [
+{id:'first-tx', name:'初次落笔', desc:'记下第一笔账目，开启财务清晰之旅',
+svg:'<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>',
+done: db.transactions.length >= 1, prog: db.transactions.length + ' / 1 笔'},
+{id:'days-30', name:'坚持 30 天', desc:'累计有记账记录的不同日期达到 30 天',
+svg:'<rect x="4" y="5" width="16" height="15" rx="2.5"/><path d="M8 3v4M16 3v4M4 10h16"/><path d="M9 15l2 2 4-4"/>',
+done: txDays >= 30, prog: txDays + ' / 30 天'},
+{id:'nospend-3', name:'极简三连', desc:'近 90 天内实现连续 3 天零支出',
+svg:'<path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/>',
+done: maxStreak >= 3, prog: '最长 ' + maxStreak + ' / 3 天'},
+{id:'nospend-10', name:'月度克制', desc:'单月累计无消费日达到 10 天',
+svg:'<path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7l7-4z"/><path d="M9 12l2 2 4-4"/>',
+done: zeroCur >= 10, prog: '本月 ' + zeroCur + ' / 10 天'},
+{id:'save-40', name:'攒钱能手', desc:'本月储蓄率（结余 ÷ 收入）达到 40%',
+svg:'<circle cx="12" cy="12" r="8.5"/><path d="M9.5 8.8l2.5 2.7 2.5-2.7M9.2 12.2h5.6M9.2 14.8h5.6M12 11.5v5.2"/>',
+done: m.income > 0 && savePct >= 40, prog: m.income > 0 ? '当前 ' + savePct + '%' : '本月暂无收入'},
+{id:'budget-guard', name:'预算守护', desc:'设置月度预算且本月支出未超支',
+svg:'<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/>',
+done: bdOk, prog: bdOn ? (bdOk ? '守住预算' : '已超支') : '未设置预算'},
+{id:'dca-30', name:'长期主义', desc:'每日定投累计自动结算满 30 笔',
+svg:'<path d="M4 17l5.5-5.5 3.5 3.5L20 8"/><path d="M15 8h5v5"/>',
+done: dcaN >= 30, prog: dcaN + ' / 30 笔'},
+{id:'net-high', name:'资产新高', desc:'当前净资产达到历史记录最高点',
+svg:'<path d="M12 3l2.6 5.4 6 .9-4.3 4.2 1 6-5.3-2.8-5.3 2.8 1-6-4.3-4.2 6-.9L12 3z"/>',
+done: netHigh, prog: series.length >= 2 ? (netHigh ? '已创新高' : '继续积累') : '需满 2 天记录'}
+];
+list.forEach(function(b){
+if (b.done && !dates[b.id]){ dates[b.id] = t0; changed = true; }
+b.unlockedAt = dates[b.id] || '';
+b.unlocked = !!(b.done || b.unlockedAt);
+});
+if (changed) saveBadgeDates(dates);
+return list;
+}
+function renderAchievements(){
+var body = document.getElementById('ach-body');
+var cnt = document.getElementById('ach-count');
+if (!body) return;
+ACH_CACHE = computeBadges();
+var okN = ACH_CACHE.filter(function(b){ return b.unlocked; }).length;
+if (cnt) cnt.textContent = okN + ' / ' + ACH_CACHE.length + ' 已解锁';
+body.innerHTML = '<div class="ach-grid">' + ACH_CACHE.map(function(b){
+var sub = b.unlocked
+? (b.unlockedAt ? b.unlockedAt.slice(5) + ' 解锁' : '已解锁')
+: (privacyOn ? '未解锁' : b.prog);
+return '<button type="button" class="ach-item' + (b.unlocked ? ' on' : '') +
+'" data-act="ach-detail" data-id="' + b.id + '">' +
+'<span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+b.svg + '</svg></span>' +
+'<span class="nm">' + esc(b.name) + '</span>' +
+'<span class="sub">' + esc(sub) + '</span></button>';
+}).join('') + '</div>';
+}
+function openBadgeDetail(id){
+var b = ACH_CACHE.filter(function(x){ return x.id === id; })[0];
+if (!b) return;
+var body = '<div style="text-align:center;padding:6px 0 4px">' +
+'<div class="ach-item' + (b.unlocked ? ' on' : '') + '" style="display:inline-flex;pointer-events:none;padding:14px 20px">' +
+'<span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+b.svg + '</svg></span>' +
+'<span class="nm">' + esc(b.name) + '</span>' +
+'<span class="sub">' + (b.unlocked ? (b.unlockedAt ? b.unlockedAt + ' 解锁' : '已解锁') : '未解锁') + '</span>' +
+'</div>' +
+'<p class="muted" style="margin:14px 0 4px;font-size:13px;color:var(--text)">' + esc(b.desc) + '</p>' +
+'<p class="muted small" style="margin:0">' + (privacyOn ? '隐私模式已开启' : '当前进度：' + esc(b.prog)) + '</p>' +
+'</div>';
+openModal('成就详情', body, function(){ return true; }, '关闭', true, 'btn');
+}
 ACTIONS['reimb-list'] = function(){ openReimbModal(); };
 ACTIONS['mb-prev'] = function(){ mbShift(-1); };
 ACTIONS['mb-next'] = function(){ mbShift(1); };
@@ -5024,6 +5135,7 @@ ACTIONS['hm-day'] = function(id, el){
 var d = el ? el.getAttribute('data-date') : '';
 if (d && typeof ledOpenDay === 'function') ledOpenDay(d);
 };
+ACTIONS['ach-detail'] = function(id){ openBadgeDetail(id); };
 ACTIONS['quick-add'] = function(){ openQuickModal(); };
 ACTIONS['quick-chip'] = function(id){
 var p = QK_CACHE[+id];
