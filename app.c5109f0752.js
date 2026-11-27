@@ -2400,6 +2400,7 @@ cpRender();
 if (typeof renderMonthlyBill === 'function') renderMonthlyBill();
 if (typeof renderHeatmap === 'function') renderHeatmap();
 if (typeof renderAchievements === 'function') renderAchievements();
+if (typeof renderWishlist === 'function') renderWishlist();
 }
 /* ================= 渲染：数据 ================= */
 /* 数据规模：只算会落到 SQLite 里的部分。逐日派生的 autoTx 不入库，
@@ -2423,6 +2424,9 @@ return c.size;
 CHANGELOG 第一条的 v 必须等于当前版本（release.py 会校验），
 所以「版本号」和「这次改了什么」永远不会对不上；只写用户看得懂的改动。 */
 var CHANGELOG = [
+{v:'99', date:'2026-11-27', items:[
+'分析页新增「心愿单 · 价值换算」（默认折叠）：记录想买的商品后，自动联动算薪、本月可花余额与近 30 天日均花销，直观换算为「需工作几天/几小时」「占本月可花比例」与「约合几天日常花销」'
+]},
 {v:'98', date:'2026-11-27', items:[
 '排查并修复类似边界误判：热力图「本月已记天数」按实际开始记账日起算；「预算守护」需本月已有支出才解锁；「资产新高」需净资产确实高于历史低点才解锁'
 ]},
@@ -5246,6 +5250,135 @@ b.svg + '</svg></span>' +
 '</div>';
 openModal('成就详情', body, function(){ return true; }, '关闭', true, 'btn');
 }
+var WISH_KEY = 'jz_wishlist';
+function loadWishlist(){
+try {
+var a = JSON.parse(lsGet(WISH_KEY) || '[]');
+return Array.isArray(a) ? a.filter(function(x){ return x && x.name && x.price > 0; }) : [];
+} catch(e){ return []; }
+}
+function saveWishlist(list){ lsSet(WISH_KEY, JSON.stringify(list || [])); }
+function wishMetrics(price){
+if (privacyOn) return [{text:'价值换算 ' + PRIVACY_MASK, cls:''}];
+var tags = [];
+if (typeof salLoad === 'function'){
+var sc = salLoad();
+if (sc && sc.monthly > 0){
+var dCnt = sc.days > 0 ? sc.days : 21.75;
+var workH = Math.max(1, (salTime(sc.end, 64800) - salTime(sc.start, 32400)) / 3600 - (sc.lunchMin || 0) / 60);
+var dayPay = sc.monthly / dCnt;
+var hrPay = dayPay / workH;
+var wDays = price / dayPay;
+var wHrs = price / hrPay;
+var txt = wDays >= 1
+? '需工作 ' + wDays.toFixed(1) + ' 天（' + Math.round(wHrs) + 'h）'
+: '需工作 ' + wHrs.toFixed(1) + ' 小时';
+tags.push({text: txt, cls: 'hi'});
+var mPct = Math.round(price / sc.monthly * 100);
+if (mPct >= 1) tags.push({text: '占月薪 ' + mPct + '%', cls: ''});
+}
+}
+var dailyAccs = typeof accountsByRole === 'function' ? accountsByRole('daily') : [];
+var spendable = dailyAccs.reduce(function(s, a){ return s + (typeof accountBalance === 'function' ? accountBalance(a.id) : 0); }, 0);
+if (spendable > 0){
+var pct = Math.round(price / spendable * 100);
+if (price > spendable){
+tags.push({text: '超出可花 ' + moneyShort(price - spendable), cls: 'warn'});
+} else {
+tags.push({text: '占可花 ' + pct + '%', cls: pct >= 50 ? 'warn' : ''});
+}
+}
+var t0 = today(), from30 = shiftDate(t0, -29);
+var exp30 = spendIn(from30, t0).reduce(function(s, t){ return s + t.amount; }, 0);
+if (exp30 > 0){
+var st = noSpendStats90();
+var span = 30;
+if (st.firstDate && st.firstDate > from30){
+span = Math.max(1, Math.round((new Date(t0 + 'T00:00:00') - new Date(st.firstDate + 'T00:00:00')) / 86400000) + 1);
+}
+var avgDay = exp30 / span;
+if (avgDay > 0){
+tags.push({text: '约 ' + (price / avgDay).toFixed(1) + ' 天日常花销', cls: ''});
+}
+}
+return tags;
+}
+function renderWishlist(){
+var body = document.getElementById('wish-body');
+var cnt = document.getElementById('wish-count');
+if (!body) return;
+var list = loadWishlist();
+var total = list.reduce(function(s, x){ return s + (+x.price || 0); }, 0);
+if (cnt){
+cnt.textContent = list.length
+? (list.length + ' 件 · ' + (privacyOn ? PRIVACY_MASK : moneyShort(total)))
+: '暂无心愿';
+}
+var html = '';
+if (!list.length){
+html = '<div class="muted small" style="padding:2px 0 4px">记录想买的商品（如耳机、相机），自动联动算薪、可花余额与日常花销帮你做价值换算。</div>';
+} else {
+html = '<div class="wish-list">' + list.map(function(it){
+var tags = wishMetrics(+it.price || 0).map(function(tg){
+return '<span class="wish-tag' + (tg.cls ? ' ' + tg.cls : '') + '">' + esc(tg.text) + '</span>';
+}).join('');
+return '<div class="wish-item" data-act="wish-edit" data-id="' + esc(it.id) + '">' +
+'<div class="wish-head">' +
+'<span class="wish-nm">' + catIcon(it.category || '购物') + esc(it.name) + '</span>' +
+'<span class="wish-amt">' + money(+it.price || 0) + '</span>' +
+'</div>' +
+'<div class="wish-tags">' + tags + '</div>' +
+(it.note ? '<div class="wish-note">' + esc(it.note) + '</div>' : '') +
+'</div>';
+}).join('') + '</div>';
+}
+html += '<div class="wish-foot">' +
+'<span class="muted small">点击商品可修改、删除或直接记账</span>' +
+'<button class="btn btn-sm btn-primary" type="button" data-act="wish-add">＋ 添加心愿</button>' +
+'</div>';
+body.innerHTML = html;
+}
+function openWishModal(editId){
+var list = loadWishlist();
+var cur = editId ? list.filter(function(x){ return x.id === editId; })[0] : null;
+var cats = EX_CATS.map(function(c){
+var sel = cur ? (cur.category === c) : (c === '购物');
+return '<option value="' + esc(c) + '"' + (sel ? ' selected' : '') + '>' + esc(c) + '</option>';
+}).join('');
+var body =
+'<div class="field"><label for="w-name">商品名称</label>' +
+'<input type="text" id="w-name" maxlength="40" placeholder="例如：降噪耳机" value="' + esc(cur ? cur.name : '') + '"></div>' +
+'<div class="field"><label for="w-price">价格 (¥)</label>' +
+'<input type="number" id="w-price" step="0.01" min="0.01" inputmode="decimal" placeholder="0.00" value="' + (cur ? cur.price : '') + '"></div>' +
+'<div class="field"><label for="w-cat">分类</label><select id="w-cat">' + cats + '</select></div>' +
+'<div class="field"><label for="w-note">备注（可选）</label>' +
+'<input type="text" id="w-note" maxlength="60" placeholder="颜色 / 型号 / 理由" value="' + esc(cur ? (cur.note || '') : '') + '"></div>' +
+(cur ? '<div style="margin-top:4px"><button class="btn btn-sm" type="button" data-act="wish-buy" data-id="' + esc(cur.id) + '">已购入，转记一笔支出</button></div>' : '');
+openModal(cur ? '编辑心愿商品' : '添加心愿商品', body, function(){
+var name = (document.getElementById('w-name').value || '').trim();
+var price = +String(document.getElementById('w-price').value || '').trim();
+if (!name){ alert('请填写商品名称'); return false; }
+if (!(price > 0)){ alert('请填写有效价格'); return false; }
+var item = {
+id: cur ? cur.id : ('w_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6)),
+name: name,
+price: Math.round(price * 100) / 100,
+category: document.getElementById('w-cat').value || '购物',
+note: (document.getElementById('w-note').value || '').trim()
+};
+var next = loadWishlist();
+if (cur){
+next = next.map(function(x){ return x.id === cur.id ? item : x; });
+} else {
+next.unshift(item);
+}
+saveWishlist(next);
+renderWishlist();
+}, '保存', false, 'btn-primary', cur ? function(){
+saveWishlist(loadWishlist().filter(function(x){ return x.id !== cur.id; }));
+renderWishlist();
+} : null);
+}
 ACTIONS['reimb-list'] = function(){ openReimbModal(); };
 ACTIONS['mb-prev'] = function(){ mbShift(-1); };
 ACTIONS['mb-next'] = function(){ mbShift(1); };
@@ -5254,3 +5387,13 @@ var d = el ? el.getAttribute('data-date') : '';
 if (d && typeof ledOpenDay === 'function') ledOpenDay(d);
 };
 ACTIONS['ach-detail'] = function(id){ openBadgeDetail(id); };
+ACTIONS['wish-add'] = function(){ openWishModal(null); };
+ACTIONS['wish-edit'] = function(id){ openWishModal(id); };
+ACTIONS['wish-buy'] = function(id){
+var cur = loadWishlist().filter(function(x){ return x.id === id; })[0];
+if (!cur) return;
+closeModal();
+if (typeof openQuickModal === 'function'){
+openQuickModal({amount: cur.price, cat: cur.category || '购物', note: cur.name});
+}
+};
